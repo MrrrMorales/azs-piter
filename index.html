@@ -281,9 +281,9 @@
     /* POPUP PANEL */
     .popup-panel {
       position: absolute;
-      top: 52px; right: 0;
+      top: 0; right: 0;
       width: 300px;
-      height: calc(100vh - 52px);
+      height: 100%;
       background: var(--surface);
       border-left: 1px solid var(--border);
       z-index: 700;
@@ -483,15 +483,6 @@
       <div id="popupInfo"></div>
 
       <a class="osm-link" id="popupOsmLink" href="#" target="_blank">Открыть на OpenStreetMap ↗</a>
-
-      <br><br>
-      <div class="popup-section-title">Видеообзор</div>
-      <div class="video-block">
-        <div class="video-placeholder">
-          <span class="play-icon">▶</span>
-          <p>Видео пока недоступно</p>
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -734,6 +725,14 @@ function buildMarkers() {
 function getFilteredSorted() {
   let list = [...allStations];
 
+  // Скрываем из списка заправки без адреса И без цен (мусорные данные OSM)
+  list = list.filter(s => {
+    const hasAddress = s.address && s.address.trim() !== '';
+    const p = getPricesForStation(s);
+    const hasPrices = Object.values(p).some(v => v !== null && v !== undefined);
+    return hasAddress || hasPrices;
+  });
+
   // Search
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -748,14 +747,20 @@ function getFilteredSorted() {
   const sort = document.getElementById('sortSelect').value;
   if (sort === 'price-asc') {
     list.sort((a, b) => {
-      const pa = getPricesForStation(a)[activeFuel] ?? 9999;
-      const pb = getPricesForStation(b)[activeFuel] ?? 9999;
+      const pa = getPricesForStation(a)[activeFuel];
+      const pb = getPricesForStation(b)[activeFuel];
+      if (pa === null && pb === null) return a.name.localeCompare(b.name, 'ru');
+      if (pa === null) return 1;
+      if (pb === null) return -1;
       return pa - pb;
     });
   } else if (sort === 'price-desc') {
     list.sort((a, b) => {
-      const pa = getPricesForStation(a)[activeFuel] ?? -1;
-      const pb = getPricesForStation(b)[activeFuel] ?? -1;
+      const pa = getPricesForStation(a)[activeFuel];
+      const pb = getPricesForStation(b)[activeFuel];
+      if (pa === null && pb === null) return a.name.localeCompare(b.name, 'ru');
+      if (pa === null) return 1;
+      if (pb === null) return -1;
       return pb - pa;
     });
   } else {
