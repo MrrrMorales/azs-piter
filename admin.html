@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Админка — АЗС Питер</title>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg: #0d0f14; --surface: #161921; --surface2: #1e2330;
+      --border: #2a2f3e; --accent: #f5a623; --text: #eef0f6;
+      --muted: #7a8099; --green: #2ecc71; --red: #e74c3c;
+      --fuel-92: #3b82f6; --fuel-95: #10b981; --fuel-100: #f59e0b; --fuel-dt: #8b5cf6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── LOGIN ── */
+    #loginScreen {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+    }
+    .login-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 40px; width: 360px; text-align: center;
+    }
+    .login-box h1 { font-family: 'Oswald', sans-serif; font-size: 24px; color: var(--accent); margin-bottom: 8px; }
+    .login-box p { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+    .login-box input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 16px; color: var(--text); font-size: 14px;
+      outline: none; margin-bottom: 12px;
+    }
+    .login-box input:focus { border-color: var(--accent); }
+    .btn {
+      width: 100%; padding: 12px; border-radius: 8px; border: none;
+      font-family: 'Oswald', sans-serif; font-size: 16px; font-weight: 600;
+      letter-spacing: 1px; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-accent { background: var(--accent); color: #000; }
+    .btn-green { background: var(--green); color: #000; }
+    .error-msg { color: var(--red); font-size: 13px; margin-top: 8px; display: none; }
+
+    /* ── ADMIN ── */
+    #adminScreen { display: none; max-width: 900px; margin: 0 auto; padding: 32px 20px; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+    header h1 { font-family: 'Oswald', sans-serif; font-size: 28px; color: var(--accent); }
+    .updated-tag { font-size: 12px; color: var(--muted); }
+
+    .brands-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 32px; }
+
+    .brand-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; position: relative;
+    }
+    .brand-card h3 {
+      font-family: 'Oswald', sans-serif; font-size: 18px; font-weight: 600;
+      margin-bottom: 16px; color: var(--text);
+    }
+    .fuel-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .fuel-field label { font-size: 11px; font-weight: 600; display: block; margin-bottom: 4px; }
+    .fuel-field label[for*="92"] { color: var(--fuel-92); }
+    .fuel-field label[for*="95"] { color: var(--fuel-95); }
+    .fuel-field label[for*="100"] { color: var(--fuel-100); }
+    .fuel-field label[for*="dt"] { color: var(--fuel-dt); }
+    .fuel-field input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 10px; color: var(--text); font-size: 14px;
+      font-family: 'Oswald', sans-serif; outline: none;
+    }
+    .fuel-field input:focus { border-color: var(--accent); }
+    .fuel-field input::placeholder { color: var(--muted); }
+
+    .save-row { display: flex; gap: 12px; align-items: center; }
+    .save-btn {
+      padding: 14px 32px; border-radius: 8px; border: none;
+      background: var(--accent); color: #000;
+      font-family: 'Oswald', sans-serif; font-size: 16px; font-weight: 700;
+      letter-spacing: 1px; cursor: pointer; transition: opacity 0.15s;
+    }
+    .save-btn:hover { opacity: 0.85; }
+    .save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #saveStatus { font-size: 13px; }
+    .status-ok { color: var(--green); }
+    .status-err { color: var(--red); }
+
+    .note { font-size: 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 24px; line-height: 1.7; }
+    .note b { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div id="loginScreen">
+  <div class="login-box">
+    <h1>⛽ АЗС Питер</h1>
+    <p>Панель управления ценами</p>
+    <input type="password" id="passwordInput" placeholder="Введи пароль" />
+    <button class="btn btn-accent" onclick="login()">Войти</button>
+    <div class="error-msg" id="loginError">Неверный пароль</div>
+  </div>
+</div>
+
+<!-- ── ADMIN ── -->
+<div id="adminScreen">
+  <header>
+    <h1>⛽ Управление ценами</h1>
+    <span class="updated-tag" id="updatedTag">—</span>
+  </header>
+
+  <div class="note">
+    <b>Как пользоваться:</b> введи актуальные цены для каждого бренда и нажми «Сохранить все цены».
+    Цены сразу появятся на сайте для всех заправок этого бренда.
+    Если для какого-то вида топлива нет цены — оставь поле пустым.
+  </div>
+
+  <div class="brands-grid" id="brandsGrid"></div>
+
+  <div class="save-row">
+    <button class="save-btn" id="saveBtn" onclick="saveAll()">💾 Сохранить все цены</button>
+    <span id="saveStatus"></span>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// КОНФИГ — вставь свои данные
+// ══════════════════════════════════════════════
+const JSONBIN_BIN_ID  = '69e79cb4856a68218959b94f';
+const JSONBIN_API_KEY = '$2a$10$xim0sZ1pskUobfoz7c0iQO7M9aNhCO05lBuDkQcZuK0PMOOMZKwee'; // $2b$10$...
+const ADMIN_PASSWORD  = 'Cadillac123+';             // например: azs2024
+
+// ══════════════════════════════════════════════
+// БРЕНДЫ
+// ══════════════════════════════════════════════
+const BRANDS = [
+  { key: 'лукойл',       label: 'Лукойл' },
+  { key: 'газпромнефть', label: 'Газпром нефть' },
+  { key: 'роснефть',     label: 'Роснефть' },
+  { key: 'птк',          label: 'ПТК' },
+  { key: 'neste',        label: 'Neste' },
+  { key: 'фаэтон',       label: 'Фаэтон' },
+  { key: 'татнефть',     label: 'Татнефть' },
+  { key: 'shell',        label: 'Shell' },
+  { key: 'авро',         label: 'Авро' },
+  { key: 'трасса',       label: 'Трасса' },
+  { key: 'кинеф',        label: 'Кинеф' },
+  { key: 'esso',         label: 'Esso' },
+];
+
+const ALIASES = {
+  'lukoil': 'лукойл', 'лукойл': 'лукойл',
+  'газпром': 'газпромнефть', 'gazpromneft': 'газпромнефть', 'газпромнефть': 'газпромнефть',
+  'роснефть': 'роснефть', 'rosneft': 'роснефть',
+  'птк': 'птк',
+  'neste': 'neste', 'несте': 'neste',
+  'фаэтон': 'фаэтон', 'faeton': 'фаэтон',
+  'татнефть': 'татнефть', 'tatneft': 'татнефть',
+  'shell': 'shell',
+  'авро': 'авро',
+  'трасса': 'трасса',
+  'кинеф': 'кинеф',
+  'esso': 'esso',
+};
+
+const FUELS = ['92', '95', '100', 'dt'];
+const FUEL_LABELS = { '92': 'АИ-92', '95': 'АИ-95', '100': 'АИ-100', 'dt': 'ДТ' };
+
+let currentPrices = {};
+
+// ══════════════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════════════
+function login() {
+  const pw = document.getElementById('passwordInput').value;
+  if (pw === ADMIN_PASSWORD) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('adminScreen').style.display = 'block';
+    loadCurrentPrices();
+  } else {
+    document.getElementById('loginError').style.display = 'block';
+  }
+}
+document.getElementById('passwordInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+
+// ══════════════════════════════════════════════
+// BUILD UI
+// ══════════════════════════════════════════════
+function buildGrid(prices) {
+  const grid = document.getElementById('brandsGrid');
+  grid.innerHTML = '';
+  BRANDS.forEach(brand => {
+    const bp = prices[brand.key] || {};
+    const card = document.createElement('div');
+    card.className = 'brand-card';
+    card.innerHTML = `
+      <h3>${brand.label}</h3>
+      <div class="fuel-inputs">
+        ${FUELS.map(f => `
+          <div class="fuel-field">
+            <label for="${brand.key}_${f}">${FUEL_LABELS[f]}</label>
+            <input type="number" step="0.01" min="0" max="999"
+              id="${brand.key}_${f}"
+              placeholder="—"
+              value="${bp[f] !== null && bp[f] !== undefined ? bp[f] : ''}">
+          </div>
+        `).join('')}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ══════════════════════════════════════════════
+// LOAD from JSONBin
+// ══════════════════════════════════════════════
+async function loadCurrentPrices() {
+  try {
+    const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    });
+    const data = await r.json();
+    const record = data.record || {};
+    currentPrices = record.prices || {};
+    const updated = record.updated || '';
+    if (updated) document.getElementById('updatedTag').textContent = 'Обновлено: ' + updated;
+    buildGrid(currentPrices);
+  } catch (e) {
+    buildGrid({});
+    console.error(e);
+  }
+}
+
+// ══════════════════════════════════════════════
+// SAVE to JSONBin
+// ══════════════════════════════════════════════
+async function saveAll() {
+  const btn = document.getElementById('saveBtn');
+  const status = document.getElementById('saveStatus');
+  btn.disabled = true;
+  status.textContent = 'Сохраняю...';
+  status.className = '';
+
+  const newPrices = {};
+  BRANDS.forEach(brand => {
+    const obj = {};
+    FUELS.forEach(f => {
+      const val = document.getElementById(`${brand.key}_${f}`).value;
+      obj[f] = val !== '' ? parseFloat(val) : null;
+    });
+    // Сохраняем только если хоть одна цена введена
+    if (Object.values(obj).some(v => v !== null)) {
+      newPrices[brand.key] = obj;
+    }
+  });
+
+  const now = new Date();
+  const updated = now.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  const payload = { updated, prices: newPrices, aliases: ALIASES };
+
+  try {
+    const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': JSONBIN_API_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    status.textContent = '✅ Сохранено! Цены обновлены на сайте.';
+    status.className = 'status-ok';
+    document.getElementById('updatedTag').textContent = 'Обновлено: ' + updated;
+  } catch (e) {
+    status.textContent = '❌ Ошибка: ' + e.message;
+    status.className = 'status-err';
+  }
+
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

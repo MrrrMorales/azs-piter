@@ -527,22 +527,30 @@ let brandAliases = {};  // { "lukoil": "лукойл", ... }
 let pricesUpdated = '';
 
 // ================================================================
-// LOAD prices.json (генерируется parser.py)
+// JSONBIN CONFIG
+// ================================================================
+const JSONBIN_BIN_ID = '69e79cb4856a68218959b94f';
+const JSONBIN_API_KEY = '$2a$10$xim0sZ1pskUobfoz7c0iQO7M9aNhCO05lBuDkQcZuK0PMOOMZKwee';
+
+// ================================================================
+// LOAD цен из JSONBin
 // ================================================================
 async function loadPrices() {
   try {
-    const r = await fetch('prices.json');
-    if (!r.ok) throw new Error('no file');
+    const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    });
+    if (!r.ok) throw new Error('JSONBin ' + r.status);
     const data = await r.json();
-    brandPrices = data.prices || {};
-    brandAliases = data.aliases || {};
-    pricesUpdated = data.updated || '';
-    console.log('[prices.json] загружен, брендов:', Object.keys(brandPrices).length);
+    const record = data.record || {};
+    brandPrices = record.prices || {};
+    brandAliases = record.aliases || {};
+    pricesUpdated = record.updated || '';
     if (pricesUpdated) {
       document.getElementById('stationCount').title = 'Цены обновлены: ' + pricesUpdated;
     }
   } catch (e) {
-    console.warn('[prices.json] не найден — цены не подгружены. Запустите parser.py');
+    console.warn('[JSONBin] ошибка:', e.message);
   }
 }
 
