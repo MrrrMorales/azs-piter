@@ -466,7 +466,7 @@
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
     <div class="loading-text">Загружаем все АЗС</div>
-    <div class="loading-sub">Санкт-Петербург и Ленинградская область<br>Подождите 5–10 секунд...</div>
+    <div class="loading-sub" id="loadingSub">Санкт-Петербург и Ленинградская область…</div>
   </div>
 
   <!-- Detail panel -->
@@ -635,13 +635,23 @@ function parsePrice(val) {
 // ================================================================
 // LOAD STATIONS from stations.json (быстро!)
 // ================================================================
+function setLoadingStatus(msg) {
+  const el = document.getElementById('loadingSub');
+  if (el) el.textContent = msg;
+}
+
 async function loadStations() {
+  setLoadingStatus('Загружаем stations.json…');
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    const r = await fetch('stations.json', { signal: controller.signal });
+    const timer = setTimeout(() => {
+      controller.abort();
+      setLoadingStatus('Превышено время ожидания stations.json');
+    }, 10000);
+    const r = await fetch('stations.json?v=' + Date.now(), { signal: controller.signal });
     clearTimeout(timer);
     if (!r.ok) throw new Error('HTTP ' + r.status);
+    setLoadingStatus('Обрабатываем данные…');
     const data = await r.json();
 
     allStations = data.map(s => ({
@@ -655,6 +665,7 @@ async function loadStations() {
     return true;
   } catch (e) {
     console.error('stations.json error:', e.message);
+    setLoadingStatus('Ошибка: ' + e.message);
     return false;
   }
 }
