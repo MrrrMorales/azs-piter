@@ -943,9 +943,8 @@ function openStation(id) {
     </div>
   `).join('') + `<div style="margin-top:6px;font-size:10px;color:var(--muted)">⚠ Цены единые по сети — на конкретной АЗС могут отличаться</div>`;
 
-  const ymQuery = encodeURIComponent(getDisplayName(s) + (s.address ? ' ' + s.address : '') + ' Санкт-Петербург');
   const popupLink = document.getElementById('popupOsmLink');
-  popupLink.href = `https://yandex.ru/maps/?text=${ymQuery}&ll=${s.lon},${s.lat}&z=17&mode=search`;
+  popupLink.href = `https://yandex.ru/maps/?ll=${s.lon},${s.lat}&z=17&pt=${s.lon},${s.lat},pm2rdl`;
   popupLink.textContent = 'Открыть на Яндекс Картах ↗';
 
   document.getElementById('popupPanel').classList.add('open');
