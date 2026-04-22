@@ -666,8 +666,19 @@ async function loadStationsOverpass() {
 // ================================================================
 // MARKERS
 // ================================================================
-function createMarkerIcon(station, selected) {
-  const color = getBrandColor(station.brand || station.name);
+function calcAvgPrice(fuel) {
+  const vals = allStations.map(s => getPricesForStation(s)[fuel]).filter(v => v !== null && v !== undefined);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function markerColor(station, fuel, avg) {
+  const price = getPricesForStation(station)[fuel];
+  if (price === null || price === undefined || avg === null) return '#f5a623';
+  return price <= avg ? '#2ecc71' : '#e74c3c';
+}
+
+function createMarkerIcon(color, selected) {
   const size = selected ? 40 : 30;
   const html = `
     <div style="
@@ -678,11 +689,20 @@ function createMarkerIcon(station, selected) {
       display:flex;align-items:center;justify-content:center;
       border:${selected ? '2.5px solid rgba(255,255,255,0.9)' : '1.5px solid rgba(255,255,255,0.25)'};
       box-shadow:0 2px ${selected ? 16 : 6}px rgba(0,0,0,0.5);
-      transition:all .2s;
     ">
       <span style="transform:rotate(45deg);font-size:${selected ? 18 : 13}px">⛽</span>
     </div>`;
   return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size] });
+}
+
+function updateMarkerColors() {
+  const avg = calcAvgPrice(activeFuel);
+  Object.entries(markersMap).forEach(([id, marker]) => {
+    const st = allStations.find(x => x.id === Number(id));
+    if (!st) return;
+    const isSelected = st.id === selectedId;
+    marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), isSelected));
+  });
 }
 
 let shownStationCount = 0;
@@ -701,6 +721,7 @@ function buildMarkers() {
   shownStationCount = 0;
 
   const pricesLoaded = Object.keys(brandPrices).length > 0;
+  const avg = calcAvgPrice(activeFuel);
 
   allStations.forEach(s => {
     const stPrices = getPricesForStation(s);
@@ -709,7 +730,7 @@ function buildMarkers() {
     shownStationCount++;
 
     const marker = L.marker([s.lat, s.lon], {
-      icon: createMarkerIcon(s, false)
+      icon: createMarkerIcon(markerColor(s, activeFuel, avg), false)
     });
 
     const priceChips = ['92','95','100','dt'].map(f => {
@@ -847,10 +868,10 @@ function openStation(id) {
   const s = allStations.find(x => x.id === id);
   if (!s) return;
 
-  // Update marker icons
+  const avg = calcAvgPrice(activeFuel);
   Object.entries(markersMap).forEach(([mid, marker]) => {
     const st = allStations.find(x => x.id === Number(mid));
-    if (st) marker.setIcon(createMarkerIcon(st, st.id === id));
+    if (st) marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), st.id === id));
   });
 
   // Fill popup
@@ -911,6 +932,7 @@ document.querySelectorAll('.fuel-tab').forEach(tab => {
     document.querySelectorAll('.fuel-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     activeFuel = tab.dataset.fuel;
+    updateMarkerColors();
     renderList();
   });
 });
@@ -929,7 +951,7 @@ function closePanel() {
   document.getElementById('popupPanel').classList.remove('open');
   if (selectedId && markersMap[selectedId]) {
     const st = allStations.find(x => x.id === selectedId);
-    if (st) markersMap[selectedId].setIcon(createMarkerIcon(st, false));
+    if (st) markersMap[selectedId].setIcon(createMarkerIcon(markerColor(st, activeFuel, calcAvgPrice(activeFuel)), false));
   }
   selectedId = null;
   renderList();
