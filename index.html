@@ -512,28 +512,46 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 // STATE
 // ================================================================
 let allStations = [];
+let stationById = {};   // O(1) lookup by id
 let activeFuel = '92';
 let selectedId = null;
 let searchQuery = '';
 const markersMap = {};
 let markerCluster = null;
-let brandPrices = {};   // { "лукойл": {92:52.5, 95:56.8, ...}, ... }
-let brandAliases = {};  // { "lukoil": "лукойл", ... }
+let brandPrices = {};
+let brandAliases = {};
 let pricesUpdated = '';
+const priceCache = new Map(); // мемоизация getPricesForStation
 
 // ================================================================
-// JSONBIN CONFIG (from config.js)
+// BRAND INFO — телефон, сайт, режим работы по умолчанию
 // ================================================================
-const _cfg = window.CONFIG || {};
-const JSONBIN_BIN_ID  = _cfg.JSONBIN_BIN_ID  || '';
-const JSONBIN_API_KEY = _cfg.JSONBIN_API_KEY || '';
+const BRAND_INFO = {
+  'лукойл':       { phone: '8 800 555-00-99', hours: 'Круглосуточно', url: 'https://lukoil.ru' },
+  'газпромнефть': { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' },
+  'роснефть':     { phone: '8 800 200-08-88', hours: 'Круглосуточно', url: 'https://rosneft.ru' },
+  'птк':          { phone: '8 800 250-25-24', hours: 'Круглосуточно', url: 'https://ptk.ru' },
+  'neste':        { phone: '8 800 200-63-30', hours: 'Круглосуточно', url: 'https://neste.ru' },
+  'татнефть':     { phone: '8 800 200-08-84', hours: 'Круглосуточно', url: 'https://tatneft.ru' },
+  'shell':        { phone: '',                hours: 'Круглосуточно', url: 'https://shell.ru' },
+  'авро':         { phone: '',                hours: 'Круглосуточно', url: '' },
+  'кинеф':        { phone: '',                hours: 'Круглосуточно', url: '' },
+  'трасса':       { phone: '',                hours: 'Круглосуточно', url: '' },
+  'esso':         { phone: '',                hours: 'Круглосуточно', url: '' },
+};
+
+function getBrandInfo(station) {
+  const key = normalizeBrandName(station.brand) || normalizeBrandName(station.name);
+  if (!key) return null;
+  return BRAND_INFO[key.toLowerCase()] || null;
+}
 
 // ================================================================
 // LOAD цен из prices.json (работает на localhost и GitHub Pages)
 // ================================================================
 async function loadPrices() {
   try {
-    const r = await fetch('prices.json?_=' + Date.now());
+    const r = await fetch('prices.json');
     if (!r.ok) throw new Error('prices.json ' + r.status);
     const data = await r.json();
     brandPrices = data.prices || {};
@@ -549,24 +567,32 @@ async function loadPrices() {
 
 // Получить цены для конкретной заправки по бренду/названию
 function getPricesForStation(station) {
+  const cacheKey = station.id;
+  if (priceCache.has(cacheKey)) return priceCache.get(cacheKey);
+
   // Сначала смотрим OSM-цены (если есть)
   const osmPrices = station.prices;
   const hasAny = Object.values(osmPrices).some(v => v !== null && v !== undefined);
-  if (hasAny) return osmPrices;
+  if (hasAny) { priceCache.set(cacheKey, osmPrices); return osmPrices; }
 
   // Иначе ищем по бренду в prices.json
   const raw = (station.brand || station.name || '').toLowerCase().trim();
-  // Попытка прямого совпадения
-  if (brandPrices[raw]) return brandPrices[raw];
-  // Через aliases
-  for (const [alias, canonical] of Object.entries(brandAliases)) {
-    if (raw.includes(alias) && brandPrices[canonical]) return brandPrices[canonical];
+  let result = null;
+  if (brandPrices[raw]) {
+    result = brandPrices[raw];
+  } else {
+    for (const [alias, canonical] of Object.entries(brandAliases)) {
+      if (raw.includes(alias) && brandPrices[canonical]) { result = brandPrices[canonical]; break; }
+    }
+    if (!result) {
+      for (const key of Object.keys(brandPrices)) {
+        if (raw.includes(key) || key.includes(raw)) { result = brandPrices[key]; break; }
+      }
+    }
   }
-  // Частичный поиск по ключам brandPrices
-  for (const key of Object.keys(brandPrices)) {
-    if (raw.includes(key) || key.includes(raw)) return brandPrices[key];
-  }
-  return { '92': null, '95': null, '100': null, 'dt': null };
+  result = result || { '92': null, '95': null, '100': null, 'dt': null };
+  priceCache.set(cacheKey, result);
+  return result;
 }
 
 // Нормализация названий брендов
@@ -620,6 +646,9 @@ async function loadStations() {
       prices: { '92': null, '95': null, '100': null, 'dt': null }
     })).filter(s => s.lat && s.lon);
 
+    stationById = {};
+    allStations.forEach(s => { stationById[s.id] = s; });
+
     return true;
   } catch (e) {
     console.error('stations.json error:', e);
@@ -652,6 +681,10 @@ async function loadStationsOverpass() {
         prices: { '92': null, '95': null, '100': null, 'dt': null }
       };
     }).filter(s => s.lat && s.lon);
+
+    stationById = {};
+    allStations.forEach(s => { stationById[s.id] = s; });
+
     return true;
   } catch (e) {
     console.error('Overpass error:', e);
@@ -693,10 +726,9 @@ function createMarkerIcon(color, selected) {
 function updateMarkerColors() {
   const avg = calcAvgPrice(activeFuel);
   Object.entries(markersMap).forEach(([id, marker]) => {
-    const st = allStations.find(x => x.id === Number(id));
+    const st = stationById[Number(id)];
     if (!st) return;
-    const isSelected = st.id === selectedId;
-    marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), isSelected));
+    marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), st.id === selectedId));
   });
 }
 
@@ -860,12 +892,12 @@ function renderList() {
 // ================================================================
 function openStation(id) {
   selectedId = id;
-  const s = allStations.find(x => x.id === id);
+  const s = stationById[id];
   if (!s) return;
 
   const avg = calcAvgPrice(activeFuel);
   Object.entries(markersMap).forEach(([mid, marker]) => {
-    const st = allStations.find(x => x.id === Number(mid));
+    const st = stationById[Number(mid)];
     if (st) marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), st.id === id));
   });
 
@@ -896,18 +928,22 @@ function openStation(id) {
     `;
   }).join('') + (priceSource ? `<div style="grid-column:1/-1;font-size:10px;color:var(--muted);margin-top:4px">Источник цен: ${priceSource}${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}</div>` : '');
 
+  const info = getBrandInfo(s);
   const infoRows = [
-    { key: 'Режим', val: s.opening_hours || 'Не указан' },
-    { key: 'Телефон', val: s.phone || 'Не указан' }
+    { key: 'Режим',   val: s.opening_hours || (info && info.hours) || 'Не указан' },
+    { key: 'Телефон', val: s.phone || (info && info.phone) || 'Не указан' },
   ];
+  if (info && info.url) {
+    infoRows.push({ key: 'Сайт', val: `<a href="${info.url}" target="_blank" style="color:var(--accent)">${info.url.replace('https://', '')}</a>` });
+  }
   document.getElementById('popupInfo').innerHTML = infoRows.map(r => `
     <div class="info-row">
       <span class="ikey">${r.key}:</span>
       <span class="ival">${r.val}</span>
     </div>
-  `).join('');
+  `).join('') + `<div style="margin-top:6px;font-size:10px;color:var(--muted)">⚠ Цены единые по сети — на конкретной АЗС могут отличаться</div>`;
 
-  const ymQuery = encodeURIComponent((s.brand || s.name || 'АЗС') + (s.address ? ' ' + s.address : ''));
+  const ymQuery = encodeURIComponent(getDisplayName(s) + (s.address ? ' ' + s.address : '') + ' Санкт-Петербург');
   const popupLink = document.getElementById('popupOsmLink');
   popupLink.href = `https://yandex.ru/maps/?text=${ymQuery}&ll=${s.lon},${s.lat}&z=17&mode=search`;
   popupLink.textContent = 'Открыть на Яндекс Картах ↗';
@@ -946,7 +982,7 @@ map.on('click', closePanel);
 function closePanel() {
   document.getElementById('popupPanel').classList.remove('open');
   if (selectedId && markersMap[selectedId]) {
-    const st = allStations.find(x => x.id === selectedId);
+    const st = stationById[selectedId];
     if (st) markersMap[selectedId].setIcon(createMarkerIcon(markerColor(st, activeFuel, calcAvgPrice(activeFuel)), false));
   }
   selectedId = null;
@@ -972,13 +1008,13 @@ function closePanel() {
     return;
   }
 
+  buildMarkers();
+  renderList();
+
   const brandCount = Object.keys(brandPrices).length;
   document.getElementById('stationCount').innerHTML = brandCount > 0
     ? `Найдено <b>${shownStationCount}</b> АЗС · цены <b>${brandCount}</b> сетей`
     : `Найдено <b>${shownStationCount}</b> АЗС · <span style="color:var(--muted)">цены не загружены</span>`;
-
-  buildMarkers();
-  renderList();
 })();
 </script>
 </body>
