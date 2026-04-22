@@ -637,8 +637,11 @@ function parsePrice(val) {
 // ================================================================
 async function loadStations() {
   try {
-    const r = await fetch('stations.json');
-    if (!r.ok) throw new Error('stations.json not found');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const r = await fetch('stations.json', { signal: controller.signal });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
 
     allStations = data.map(s => ({
@@ -651,43 +654,7 @@ async function loadStations() {
 
     return true;
   } catch (e) {
-    console.error('stations.json error:', e);
-    // Fallback — грузим из Overpass если нет файла
-    return await loadStationsOverpass();
-  }
-}
-
-async function loadStationsOverpass() {
-  const query = `[out:json][timeout:60];(node["amenity"="fuel"](58.5,27.5,61.5,33.5);way["amenity"="fuel"](58.5,27.5,61.5,33.5););out center tags;`;
-  try {
-    const resp = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: 'data=' + encodeURIComponent(query),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    allStations = data.elements.map(el => {
-      const lat = el.lat ?? el.center?.lat;
-      const lon = el.lon ?? el.center?.lon;
-      const tags = el.tags || {};
-      return {
-        id: el.id, type: el.type, lat, lon,
-        name: tags.brand || tags.name || tags.operator || 'АЗС',
-        brand: tags.brand || tags.operator || '',
-        address: [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(', ') || '',
-        opening_hours: tags.opening_hours || '',
-        phone: tags.phone || tags['contact:phone'] || '',
-        prices: { '92': null, '95': null, '100': null, 'dt': null }
-      };
-    }).filter(s => s.lat && s.lon);
-
-    stationById = {};
-    allStations.forEach(s => { stationById[s.id] = s; });
-
-    return true;
-  } catch (e) {
-    console.error('Overpass error:', e);
+    console.error('stations.json error:', e.message);
     return false;
   }
 }
