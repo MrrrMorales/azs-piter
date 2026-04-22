@@ -700,9 +700,11 @@ function buildMarkers() {
 
   shownStationCount = 0;
 
+  const pricesLoaded = Object.keys(brandPrices).length > 0;
+
   allStations.forEach(s => {
     const stPrices = getPricesForStation(s);
-    if (!Object.values(stPrices).some(v => v !== null)) return;
+    if (pricesLoaded && !Object.values(stPrices).some(v => v !== null)) return;
 
     shownStationCount++;
 
@@ -737,10 +739,12 @@ function buildMarkers() {
 function getFilteredSorted() {
   let list = [...allStations];
 
-  list = list.filter(s => {
-    const p = getPricesForStation(s);
-    return Object.values(p).some(v => v !== null && v !== undefined);
-  });
+  if (Object.keys(brandPrices).length > 0) {
+    list = list.filter(s => {
+      const p = getPricesForStation(s);
+      return Object.values(p).some(v => v !== null && v !== undefined);
+    });
+  }
 
   // Search
   if (searchQuery) {
