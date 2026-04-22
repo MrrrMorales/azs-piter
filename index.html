@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>АЗС Санкт-Петербург и Ленобласть</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
 
   <style>
@@ -489,6 +491,7 @@
 
 <script src="config.js" onerror="console.warn('config.js not found, using empty credentials')"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 // ================================================================
 // MAP INIT
@@ -682,38 +685,50 @@ function createMarkerIcon(station, selected) {
   return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size] });
 }
 
+let shownStationCount = 0;
+
 function buildMarkers() {
-  // Remove existing
-  Object.values(markersMap).forEach(m => map.removeLayer(m));
+  if (markerCluster) map.removeLayer(markerCluster);
   Object.keys(markersMap).forEach(k => delete markersMap[k]);
+
+  markerCluster = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true,
+  });
+
+  shownStationCount = 0;
 
   allStations.forEach(s => {
     const stPrices = getPricesForStation(s);
     if (!Object.values(stPrices).some(v => v !== null)) return;
 
+    shownStationCount++;
+
     const marker = L.marker([s.lat, s.lon], {
       icon: createMarkerIcon(s, false)
-    }).addTo(map);
+    });
 
     const priceChips = ['92','95','100','dt'].map(f => {
       const p = stPrices[f];
       const label = f === 'dt' ? 'ДТ' : `АИ-${f}`;
-      const colorVar = `var(--fuel-${f})`;
-      return p
-        ? `<span class="map-popup-chip" style="color:${colorVar}">${label}: ${p} ₽</span>`
-        : '';
+      return p ? `<span class="map-popup-chip" style="color:var(--fuel-${f})">${label}: ${p} ₽</span>` : '';
     }).filter(Boolean).join('');
 
     marker.bindPopup(`
       <div class="map-popup-name">${s.name}</div>
-      <div class="map-popup-addr">${s.address || 'Адрес не указан'}</div>
-      <div class="map-popup-prices">${priceChips || '<span style="color:var(--muted);font-size:11px">Цены не указаны в OSM</span>'}</div>
+      <div class="map-popup-addr">${s.address || ''}</div>
+      <div class="map-popup-prices">${priceChips}</div>
       <button class="map-popup-btn" onclick="openStation(${s.id})">Подробнее →</button>
     `);
 
     marker.on('click', () => openStation(s.id));
     markersMap[s.id] = marker;
+    markerCluster.addLayer(marker);
   });
+
+  map.addLayer(markerCluster);
 }
 
 // ================================================================
@@ -722,12 +737,9 @@ function buildMarkers() {
 function getFilteredSorted() {
   let list = [...allStations];
 
-  // Скрываем из списка заправки без адреса И без цен (мусорные данные OSM)
   list = list.filter(s => {
-    const hasAddress = s.address && s.address.trim() !== '';
     const p = getPricesForStation(s);
-    const hasPrices = Object.values(p).some(v => v !== null && v !== undefined);
-    return hasAddress || hasPrices;
+    return Object.values(p).some(v => v !== null && v !== undefined);
   });
 
   // Search
@@ -938,11 +950,10 @@ function closePanel() {
     return;
   }
 
-  const shownCount = allStations.filter(s => Object.values(getPricesForStation(s)).some(v => v !== null)).length;
   const brandCount = Object.keys(brandPrices).length;
   document.getElementById('stationCount').innerHTML = brandCount > 0
-    ? `Найдено <b>${shownCount}</b> АЗС · цены <b>${brandCount}</b> сетей`
-    : `Найдено <b>${shownCount}</b> АЗС · <span style="color:var(--muted)">цены не загружены</span>`;
+    ? `Найдено <b>${shownStationCount}</b> АЗС · цены <b>${brandCount}</b> сетей`
+    : `Найдено <b>${shownStationCount}</b> АЗС · <span style="color:var(--muted)">цены не загружены</span>`;
 
   buildMarkers();
   renderList();
