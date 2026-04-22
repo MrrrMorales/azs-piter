@@ -529,25 +529,21 @@ const JSONBIN_BIN_ID  = _cfg.JSONBIN_BIN_ID  || '';
 const JSONBIN_API_KEY = _cfg.JSONBIN_API_KEY || '';
 
 // ================================================================
-// LOAD цен из JSONBin
+// LOAD цен из prices.json (работает на localhost и GitHub Pages)
 // ================================================================
 async function loadPrices() {
-  if (!JSONBIN_BIN_ID) { console.warn('[JSONBin] BIN_ID не задан'); return; }
   try {
-    const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY }
-    });
-    if (!r.ok) throw new Error('JSONBin ' + r.status);
+    const r = await fetch('prices.json?_=' + Date.now());
+    if (!r.ok) throw new Error('prices.json ' + r.status);
     const data = await r.json();
-    const record = data.record || {};
-    brandPrices = record.prices || {};
-    brandAliases = record.aliases || {};
-    pricesUpdated = record.updated || '';
+    brandPrices = data.prices || {};
+    brandAliases = data.aliases || {};
+    pricesUpdated = data.updated || '';
     if (pricesUpdated) {
       document.getElementById('stationCount').title = 'Цены обновлены: ' + pricesUpdated;
     }
   } catch (e) {
-    console.warn('[JSONBin] ошибка:', e.message);
+    console.warn('[prices.json] ошибка:', e.message);
   }
 }
 
