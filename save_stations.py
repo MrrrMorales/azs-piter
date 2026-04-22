@@ -1,24 +1,29 @@
 """
-save_stations.py — Один раз скачивает все АЗС Питера и Ленобласти
-и сохраняет в stations.json.
-
+save_stations.py — Скачивает все АЗС Питера и Ленобласти по границам региона.
 Запуск: py save_stations.py
-Потом закинь stations.json на GitHub в репозиторий azs-piter.
 """
 
-import json
+import json, sys
 import urllib.request
 import urllib.parse
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 print("=" * 55)
 print("  Скачиваем все АЗС Питера и Ленобласти...")
 print("=" * 55)
 
+# Запрос по официальным границам СПб + Ленобласти (исключает Финляндию)
 query = """
-[out:json][timeout:90];
+[out:json][timeout:120];
 (
-  node["amenity"="fuel"](58.5,27.5,61.5,33.5);
-  way["amenity"="fuel"](58.5,27.5,61.5,33.5);
+  area["name"="Санкт-Петербург"]["admin_level"="4"]->.spb;
+  area["name"="Ленинградская область"]["admin_level"="4"]->.lo;
+  node["amenity"="fuel"](area.spb);
+  way["amenity"="fuel"](area.spb);
+  node["amenity"="fuel"](area.lo);
+  way["amenity"="fuel"](area.lo);
 );
 out center tags;
 """.strip()
@@ -31,42 +36,66 @@ req = urllib.request.Request(url, data=data, headers={
     "User-Agent": "AZS-Piter/1.0"
 })
 
-print("Запрос к OpenStreetMap... (может занять 30-60 секунд)")
+print("Запрос к OpenStreetMap... (30-90 секунд)")
 
 try:
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=150) as resp:
         raw = json.loads(resp.read())
 except Exception as e:
     print(f"Ошибка: {e}")
-    exit(1)
+    sys.exit(1)
+
+# Ключевые слова чисто-газовых станций (АГЗС, LPG, метан) — исключаем
+GAS_ONLY = {'агзс', 'автогаз', 'газозаправочная', 'lpg', 'метан', 'cng', 'пропан', 'gnv'}
+
+def is_gas_only(tags):
+    name = (tags.get('name') or tags.get('brand') or '').lower()
+    # Исключаем если название явно газовое
+    if any(kw in name for kw in GAS_ONLY):
+        return True
+    # Исключаем если тег fuel:lpg=yes и нет бензиновых тегов
+    has_petrol = any(tags.get(f'fuel:octane_{n}') for n in ['92','95','98','100'])
+    has_diesel = tags.get('fuel:diesel') or tags.get('fuel:HGV_diesel')
+    has_lpg_only = tags.get('fuel:lpg') == 'yes' and not has_petrol and not has_diesel
+    return has_lpg_only
 
 def get_name(tags):
-    return tags.get("brand") or tags.get("name") or tags.get("operator") or "АЗС"
+    return tags.get('brand') or tags.get('name') or tags.get('operator') or 'АЗС'
 
+seen_ids = set()
 stations = []
-for el in raw["elements"]:
-    lat = el.get("lat") or (el.get("center") or {}).get("lat")
-    lon = el.get("lon") or (el.get("center") or {}).get("lon")
+for el in raw['elements']:
+    eid = el['id']
+    if eid in seen_ids:
+        continue
+    seen_ids.add(eid)
+
+    lat = el.get('lat') or (el.get('center') or {}).get('lat')
+    lon = el.get('lon') or (el.get('center') or {}).get('lon')
     if not lat or not lon:
         continue
-    tags = el.get("tags", {})
+
+    tags = el.get('tags', {})
+    if is_gas_only(tags):
+        continue
+
     stations.append({
-        "id": el["id"],
-        "type": el["type"],
-        "lat": lat,
-        "lon": lon,
-        "name": get_name(tags),
-        "brand": tags.get("brand") or tags.get("operator") or "",
-        "address": " ".join(filter(None, [
-            tags.get("addr:street", ""),
-            tags.get("addr:housenumber", "")
+        'id':   eid,
+        'type': el['type'],
+        'lat':  lat,
+        'lon':  lon,
+        'name':   get_name(tags),
+        'brand':  tags.get('brand') or tags.get('operator') or '',
+        'address': ' '.join(filter(None, [
+            tags.get('addr:city', ''),
+            tags.get('addr:street', ''),
+            tags.get('addr:housenumber', ''),
         ])).strip(),
-        "opening_hours": tags.get("opening_hours", ""),
-        "phone": tags.get("phone") or tags.get("contact:phone") or "",
+        'opening_hours': tags.get('opening_hours', ''),
+        'phone': tags.get('phone') or tags.get('contact:phone') or '',
     })
 
-with open("stations.json", "w", encoding="utf-8") as f:
+with open('stations.json', 'w', encoding='utf-8') as f:
     json.dump(stations, f, ensure_ascii=False, separators=(',', ':'))
 
-print(f"\n✅ Готово! Сохранено {len(stations)} заправок в stations.json")
-print(f"   Теперь загрузи stations.json на GitHub в репозиторий azs-piter")
+print(f"\nГотово! Сохранено {len(stations)} АЗС в stations.json")

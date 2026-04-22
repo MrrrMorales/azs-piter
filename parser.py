@@ -51,6 +51,8 @@ BRAND_MAP = {
     'neste':        'neste',
     'несте':        'neste',
     'татнефть':     'татнефть',
+    'teboil':       'teboil',
+    'тебойл':       'teboil',
     'shell':        'shell',
     'авро':         'авро',
     'трасса':       'трасса',

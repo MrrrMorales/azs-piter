@@ -527,17 +527,20 @@ const priceCache = new Map(); // мемоизация getPricesForStation
 // BRAND INFO — телефон, сайт, режим работы по умолчанию
 // ================================================================
 const BRAND_INFO = {
-  'лукойл':       { phone: '8 800 555-00-99', hours: 'Круглосуточно', url: 'https://lukoil.ru' },
-  'газпромнефть': { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' },
-  'роснефть':     { phone: '8 800 200-08-88', hours: 'Круглосуточно', url: 'https://rosneft.ru' },
-  'птк':          { phone: '8 800 250-25-24', hours: 'Круглосуточно', url: 'https://ptk.ru' },
-  'neste':        { phone: '8 800 200-63-30', hours: 'Круглосуточно', url: 'https://neste.ru' },
-  'татнефть':     { phone: '8 800 200-08-84', hours: 'Круглосуточно', url: 'https://tatneft.ru' },
-  'shell':        { phone: '',                hours: 'Круглосуточно', url: 'https://shell.ru' },
-  'авро':         { phone: '',                hours: 'Круглосуточно', url: '' },
-  'кинеф':        { phone: '',                hours: 'Круглосуточно', url: '' },
-  'трасса':       { phone: '',                hours: 'Круглосуточно', url: '' },
-  'esso':         { phone: '',                hours: 'Круглосуточно', url: '' },
+  'лукойл':           { phone: '8 800 555-00-99', hours: 'Круглосуточно', url: 'https://lukoil.ru' },
+  'газпром нефть':    { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' },
+  'газпром':          { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' },
+  'роснефть':         { phone: '8 800 200-08-88', hours: 'Круглосуточно', url: 'https://rosneft.ru' },
+  'птк':              { phone: '8 800 250-25-24', hours: 'Круглосуточно', url: 'https://ptk.ru' },
+  'teboil':           { phone: '8 800 775-22-10', hours: 'Круглосуточно', url: 'https://teboil.ru' },
+  'neste':            { phone: '8 800 200-63-30', hours: 'Круглосуточно', url: 'https://neste.ru' },
+  'татнефть':         { phone: '8 800 200-08-84', hours: 'Круглосуточно', url: 'https://tatneft.ru' },
+  'сургутнефтегаз':   { phone: '',                hours: 'Круглосуточно', url: 'https://surgutneftegas.ru' },
+  'shell':            { phone: '',                hours: 'Круглосуточно', url: '' },
+  'кинеф':            { phone: '',                hours: 'Круглосуточно', url: '' },
+  'авро':             { phone: '',                hours: 'Круглосуточно', url: '' },
+  'трасса':           { phone: '',                hours: 'Круглосуточно', url: '' },
+  'esso':             { phone: '',                hours: 'Круглосуточно', url: '' },
 };
 
 function getBrandInfo(station) {
@@ -597,20 +600,25 @@ function getPricesForStation(station) {
 
 // Нормализация названий брендов
 const BRAND_NAMES = [
-  [['лукойл','lukoil'],           'Лукойл'],
-  [['газпром','gazprom','gpn'],    'Газпром нефть'],
-  [['роснефть','rosneft'],         'Роснефть'],
-  [['птк','ptk'],                  'ПТК'],
-  [['neste','несте'],              'Neste'],
-  [['фаэтон','faeton'],            'Фаэтон'],
-  [['татнефть','tatneft'],         'Татнефть'],
-  [['shell'],                      'Shell'],
-  [['кинеф','kinef'],              'Кинеф'],
-  [['авро','avro'],                'Авро'],
-  [['трасса','trassa'],            'Трасса'],
-  [['esso','эссо'],                'Esso'],
-  [['bp','бп'],                    'BP'],
-  [['сургут'],                     'Сургутнефтегаз'],
+  [['лукойл','lukoil'],                        'Лукойл'],
+  [['газпромнефть','газпром нефть','gpn'],      'Газпром нефть'],
+  [['газпром'],                                 'Газпром'],
+  [['роснефть','rosneft'],                      'Роснефть'],
+  [['птк','ptk'],                               'ПТК'],
+  [['teboil','тебойл'],                         'Teboil'],
+  [['neste','несте'],                           'Neste'],
+  [['татнефть','tatneft'],                      'Татнефть'],
+  [['shell'],                                   'Shell'],
+  [['киришиавтосервис','кинеф','kinef'],        'Кинеф'],
+  [['сургутнефтегаз','сургут'],                 'Сургутнефтегаз'],
+  [['выборгская топливная','втк'],              'ВТК'],
+  [['авро','avro'],                             'Авро'],
+  [['трасса','trassa'],                         'Трасса'],
+  [['esso','эссо'],                             'Esso'],
+  [['bp','бп'],                                 'BP'],
+  [['фаэтон','faeton'],                         'Фаэтон'],
+  [['линос'],                                   'Линос'],
+  [['nord point'],                              'Nord Point'],
 ];
 
 function normalizeBrandName(raw) {
@@ -657,7 +665,7 @@ async function loadStations() {
     allStations = data.map(s => ({
       ...s,
       prices: { '92': null, '95': null, '100': null, 'dt': null }
-    })).filter(s => s.lat && s.lon && s.lon > 28.2 && s.lon < 35.5 && s.lat > 58.7 && s.lat < 61.4);
+    })).filter(s => s.lat && s.lon);
 
     stationById = {};
     allStations.forEach(s => { stationById[s.id] = s; });
