@@ -240,6 +240,11 @@ def run():
         print('fuelprice.ru не дал результатов, пробуем benzin-price.ru...')
         results = parse_benzinprice()
 
+    if not results:
+        print('[prices.json] Нет данных — старые цены НЕ перезаписываются')
+        print('=' * 50)
+        return
+
     output = {
         'updated': datetime.datetime.now().strftime('%d.%m.%Y %H:%M'),
         'prices': results,
@@ -249,10 +254,7 @@ def run():
     with open('prices.json', 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    if results:
-        upload_to_jsonbin(output)
-    else:
-        print('[JSONBin] Нет данных — загрузка пропущена, старые цены сохранены')
+    upload_to_jsonbin(output)
 
     print()
     print('=' * 50)
