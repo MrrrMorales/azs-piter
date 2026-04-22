@@ -1,18 +1,29 @@
 """
 parser.py — Парсер цен на топливо для АЗС Санкт-Петербурга и Ленобласти
 Запуск: python parser.py
-Результат сохраняется в prices.json рядом с этим файлом.
+Результат загружается в JSONBin (JSONBIN_BIN_ID + JSONBIN_API_KEY из env).
 
-Установка зависимостей (один раз):
+Установка зависимостей:
     pip install requests beautifulsoup4 lxml
 """
 
 import json
+import os
 import re
+import sys
 import time
 import datetime
 import requests
 from bs4 import BeautifulSoup
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+JSONBIN_BIN_ID  = os.environ.get('JSONBIN_BIN_ID',  '')
+JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '')
+
+PRICE_MIN = 50.0
+PRICE_MAX = 160.0
 
 HEADERS = {
     "User-Agent": (
@@ -27,267 +38,203 @@ SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
 
-def safe_get(url, **kwargs):
-    try:
-        r = SESSION.get(url, timeout=15, **kwargs)
-        r.raise_for_status()
-        return r
-    except Exception as e:
-        print(f"  [!] GET {url} → {e}")
-        return None
+def safe_get(url, retries=2, **kwargs):
+    for attempt in range(retries + 1):
+        try:
+            r = SESSION.get(url, timeout=20, **kwargs)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(2)
+            else:
+                print(f"  [!] GET {url} -> {e}")
+    return None
 
 
 def parse_price(text):
-    """Вытащить число из строки вида '56,40 ₽' или '56.4'"""
+    """Вытащить число из строки, вернуть None если вне допустимого диапазона."""
     if not text:
         return None
-    text = str(text).replace('\xa0', '').replace(' ', '').replace(',', '.')
-    m = re.search(r'\d+\.\d+|\d+', text)
-    return float(m.group()) if m else None
+    text = str(text).replace('\xa0', '').replace(' ', '').replace(' ', '').replace(',', '.')
+    m = re.search(r'\d{2,3}\.\d{1,2}|\d{2,3}', text)
+    if not m:
+        return None
+    val = float(m.group())
+    if PRICE_MIN <= val <= PRICE_MAX:
+        return val
+    return None
+
+
+def best_price(cells):
+    """Берём максимальную валидную цену из строки таблицы (розница > скидка)."""
+    candidates = [parse_price(c) for c in cells[1:]]
+    candidates = [v for v in candidates if v is not None]
+    return max(candidates) if candidates else None
+
+
+def classify_fuel(name):
+    """Определяем тип топлива по названию строки."""
+    n = name.lower().strip()
+    if re.search(r'\b100\b', n):
+        return '100'
+    if re.search(r'\b95\b', n):
+        return '95'
+    if re.search(r'\b92\b', n) and '95' not in n:
+        return '92'
+    if re.search(r'дт|дизел|diesel|евродизель', n):
+        return 'dt'
+    return None
+
+
+def parse_from_tables(soup, label=''):
+    """Универсальный парсер: ищет все таблицы, возвращает {92, 95, 100, dt}."""
+    prices = {}
+    for row in soup.select('tr'):
+        cells = [c.get_text(strip=True) for c in row.find_all(['td', 'th'])]
+        if len(cells) < 2:
+            continue
+        fuel = classify_fuel(cells[0])
+        if not fuel:
+            continue
+        val = best_price(cells)
+        if val and fuel not in prices:
+            prices[fuel] = val
+    if prices:
+        print(f"  -> {label}: {prices}")
+    return prices or None
 
 
 # ─────────────────────────────────────────────────────────────────
-# ЛУКОЙЛ
-# https://spb.lukoil.ru/main/fuel/prices
+# ЛУКОЙЛ  https://spb.lukoil.ru/main/fuel/prices
 # ─────────────────────────────────────────────────────────────────
 def parse_lukoil():
     print("[Лукойл] Запрос...")
-    url = "https://spb.lukoil.ru/main/fuel/prices"
-    r = safe_get(url)
+    r = safe_get("https://spb.lukoil.ru/main/fuel/prices")
     if not r:
         return None
-    soup = BeautifulSoup(r.text, "lxml")
-    prices = {}
-    # Ищем таблицу с ценами
-    for row in soup.select("table tr"):
-        cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
-        if not cells:
-            continue
-        name = cells[0].lower()
-        val = parse_price(cells[1]) if len(cells) > 1 else None
-        if "экто-92" in name or "регуляр-92" in name or ("92" in name and "95" not in name):
-            prices["92"] = val
-        elif "экто-95" in name or "премиум-95" in name or "95" in name:
-            prices["95"] = val
-        elif "экто-100" in name or "100" in name:
-            prices["100"] = val
-        elif "дт" in name or "diesel" in name or "евро" in name:
-            prices["dt"] = val
-    if prices:
-        print(f"  → Лукойл: {prices}")
-    return prices or None
+    return parse_from_tables(BeautifulSoup(r.text, 'lxml'), 'Лукойл')
 
 
 # ─────────────────────────────────────────────────────────────────
-# ГАЗПРОМ НЕФТЬ
-# https://www.gpnbonus.ru/ceny/
+# ГАЗПРОМ НЕФТЬ  https://www.gpnbonus.ru/ceny/
 # ─────────────────────────────────────────────────────────────────
 def parse_gazprom():
     print("[Газпром] Запрос...")
-    url = "https://www.gpnbonus.ru/ceny/"
-    r = safe_get(url)
+    r = safe_get("https://www.gpnbonus.ru/ceny/")
     if not r:
         return None
-    soup = BeautifulSoup(r.text, "lxml")
-    prices = {}
+    soup = BeautifulSoup(r.text, 'lxml')
     # Ищем секцию Санкт-Петербург
-    spb_section = None
-    for el in soup.find_all(string=re.compile(r"Санкт-Петербург|Петербург|Ленинград", re.I)):
-        spb_section = el.find_parent(["div", "section", "tr"])
-        if spb_section:
+    spb = None
+    for el in soup.find_all(string=re.compile(r'Санкт-Петербург|Петербург', re.I)):
+        parent = el.find_parent(['div', 'section', 'tr'])
+        if parent:
+            spb = parent.find_parent('table') or parent
             break
-
-    target = spb_section or soup  # если не нашли — берём всю страницу
-
-    for row in target.select("tr") if hasattr(target, 'select') else soup.select("tr"):
-        cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
-        if len(cells) < 2:
-            continue
-        name = cells[0].lower()
-        val = parse_price(cells[-1])
-        if "g-92" in name or "аи-92" in name or ("92" in name and "95" not in name and "100" not in name):
-            prices["92"] = val
-        elif "g-95" in name or "аи-95" in name or "95" in name:
-            prices["95"] = val
-        elif "100" in name:
-            prices["100"] = val
-        elif "дт" in name or "diesel" in name or "g-дт" in name:
-            prices["dt"] = val
-    if prices:
-        print(f"  → Газпром: {prices}")
-    return prices or None
+    return parse_from_tables(spb or soup, 'Газпром')
 
 
 # ─────────────────────────────────────────────────────────────────
-# РОСНЕФТЬ
-# https://www.rosneft.ru/retail/prices/
+# РОСНЕФТЬ  https://www.rosneft.ru/retail/prices/
 # ─────────────────────────────────────────────────────────────────
 def parse_rosneft():
     print("[Роснефть] Запрос...")
-    url = "https://www.rosneft.ru/retail/prices/"
-    r = safe_get(url)
+    r = safe_get("https://www.rosneft.ru/retail/prices/")
     if not r:
         return None
-    soup = BeautifulSoup(r.text, "lxml")
-    prices = {}
-
-    spb_block = None
-    for el in soup.find_all(string=re.compile(r"Санкт-Петербург|Петербург", re.I)):
-        parent = el.find_parent(["tr", "div", "li"])
+    soup = BeautifulSoup(r.text, 'lxml')
+    spb = None
+    for el in soup.find_all(string=re.compile(r'Санкт-Петербург|Петербург', re.I)):
+        parent = el.find_parent(['tr', 'div', 'li'])
         if parent:
-            # попробуем найти соседние строки с ценами
-            spb_block = parent.find_parent("table") or parent
+            spb = parent.find_parent('table') or parent
             break
-
-    source = spb_block or soup
-    for row in source.select("tr"):
-        cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
-        if len(cells) < 2:
-            continue
-        name = cells[0].lower()
-        val = parse_price(cells[1])
-        if re.search(r'\b92\b', name) and "95" not in name:
-            prices.setdefault("92", val)
-        elif re.search(r'\b95\b', name):
-            prices.setdefault("95", val)
-        elif re.search(r'\b100\b', name):
-            prices.setdefault("100", val)
-        elif re.search(r'дт|диз|diesel', name):
-            prices.setdefault("dt", val)
-    if prices:
-        print(f"  → Роснефть: {prices}")
-    return prices or None
+    return parse_from_tables(spb or soup, 'Роснефть')
 
 
 # ─────────────────────────────────────────────────────────────────
-# ПТКТНК (ПТК — петербургская сеть)
-# https://ptk.ru/prices/
+# ПТК  https://ptk.ru/prices/
 # ─────────────────────────────────────────────────────────────────
 def parse_ptk():
     print("[ПТК] Запрос...")
-    url = "https://ptk.ru/prices/"
-    r = safe_get(url)
+    r = safe_get("https://ptk.ru/prices/")
     if not r:
         return None
-    soup = BeautifulSoup(r.text, "lxml")
-    prices = {}
-    for row in soup.select("tr, .price-row"):
-        cells = [c.get_text(strip=True) for c in row.find_all(["td", "th", "div"])]
-        if len(cells) < 2:
-            continue
-        name = cells[0].lower()
-        val = parse_price(cells[1])
-        if "92" in name and "95" not in name:
-            prices["92"] = val
-        elif "95" in name:
-            prices["95"] = val
-        elif "100" in name:
-            prices["100"] = val
-        elif "дт" in name or "дизель" in name:
-            prices["dt"] = val
-    if prices:
-        print(f"  → ПТК: {prices}")
-    return prices or None
+    return parse_from_tables(BeautifulSoup(r.text, 'lxml'), 'ПТК')
 
 
 # ─────────────────────────────────────────────────────────────────
-# NESTE
-# https://neste.ru/ceny-na-toplivo/
+# NESTE  https://neste.ru/ceny-na-toplivo/
 # ─────────────────────────────────────────────────────────────────
 def parse_neste():
     print("[Neste] Запрос...")
-    url = "https://neste.ru/ceny-na-toplivo/"
-    r = safe_get(url)
+    r = safe_get("https://neste.ru/ceny-na-toplivo/")
     if not r:
         return None
-    soup = BeautifulSoup(r.text, "lxml")
-    prices = {}
-    for row in soup.select("tr"):
-        cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
-        if len(cells) < 2:
-            continue
-        name = cells[0].lower()
-        val = parse_price(cells[-1])
-        if "92" in name and "95" not in name:
-            prices["92"] = val
-        elif "95" in name:
-            prices["95"] = val
-        elif "100" in name:
-            prices["100"] = val
-        elif "дт" in name or "diesel" in name or "pro diesel" in name:
-            prices["dt"] = val
-    if prices:
-        print(f"  → Neste: {prices}")
-    return prices or None
+    return parse_from_tables(BeautifulSoup(r.text, 'lxml'), 'Neste')
 
 
 # ─────────────────────────────────────────────────────────────────
-# ФАЭТОН
-# https://faeton.ru/prices/
+# ФАЭТОН  https://faeton.ru/prices/
 # ─────────────────────────────────────────────────────────────────
 def parse_faeton():
     print("[Фаэтон] Запрос...")
-    url = "https://faeton.ru/prices/"
-    r = safe_get(url)
+    r = safe_get("https://faeton.ru/prices/")
     if not r:
         return None
-    soup = BeautifulSoup(r.text, "lxml")
-    prices = {}
-    for row in soup.select("tr"):
-        cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
-        if len(cells) < 2:
-            continue
-        name = cells[0].lower()
-        val = parse_price(cells[1])
-        if "92" in name and "95" not in name:
-            prices["92"] = val
-        elif "95" in name:
-            prices["95"] = val
-        elif "100" in name:
-            prices["100"] = val
-        elif "дт" in name or "дизель" in name:
-            prices["dt"] = val
-    if prices:
-        print(f"  → Фаэтон: {prices}")
-    return prices or None
+    return parse_from_tables(BeautifulSoup(r.text, 'lxml'), 'Фаэтон')
 
 
 # ─────────────────────────────────────────────────────────────────
-# СБОРКА И СОХРАНЕНИЕ
+# СБОРКА
 # ─────────────────────────────────────────────────────────────────
 
 PARSERS = {
-    "лукойл":   parse_lukoil,
-    "газпромнефть": parse_gazprom,
-    "роснефть": parse_rosneft,
-    "птк":      parse_ptk,
-    "neste":    parse_neste,
-    "фаэтон":   parse_faeton,
+    'лукойл':       parse_lukoil,
+    'газпромнефть': parse_gazprom,
+    'роснефть':     parse_rosneft,
+    'птк':          parse_ptk,
+    'neste':        parse_neste,
+    'фаэтон':       parse_faeton,
 }
 
-# Алиасы: какие строки OSM name/brand → ключ словаря выше
 BRAND_ALIASES = {
-    "лукойл": "лукойл",
-    "lukoil": "лукойл",
-    "газпром": "газпромнефть",
-    "gazpromneft": "газпромнефть",
-    "газпромнефть": "газпромнефть",
-    "роснефть": "роснефть",
-    "rosneft": "роснефть",
-    "птк": "птк",
-    "neste": "neste",
-    "несте": "neste",
-    "фаэтон": "фаэтон",
-    "faeton": "фаэтон",
+    'лукойл': 'лукойл', 'lukoil': 'лукойл',
+    'газпром': 'газпромнефть', 'gazpromneft': 'газпромнефть', 'газпромнефть': 'газпромнефть',
+    'роснефть': 'роснефть', 'rosneft': 'роснефть',
+    'птк': 'птк',
+    'neste': 'neste', 'несте': 'neste',
+    'фаэтон': 'фаэтон', 'faeton': 'фаэтон',
+    'татнефть': 'татнефть', 'tatneft': 'татнефть',
+    'shell': 'shell',
+    'авро': 'авро',
+    'трасса': 'трасса',
+    'кинеф': 'кинеф',
+    'esso': 'esso',
 }
 
 
-def normalize_brand(name: str) -> str | None:
-    name = (name or "").lower().strip()
-    for key, canonical in BRAND_ALIASES.items():
-        if key in name:
-            return canonical
-    return None
+def upload_to_jsonbin(output):
+    if not JSONBIN_BIN_ID or not JSONBIN_API_KEY:
+        print("[JSONBin] Нет BIN_ID или API_KEY — загрузка пропущена")
+        return False
+    try:
+        r = requests.put(
+            f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}",
+            json=output,
+            headers={
+                'Content-Type': 'application/json',
+                'X-Master-Key': JSONBIN_API_KEY,
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+        print(f"[JSONBin] Загружено успешно -> {r.status_code}")
+        return True
+    except Exception as e:
+        print(f"[JSONBin] Ошибка загрузки: {e}")
+        return False
 
 
 def run():
@@ -300,7 +247,7 @@ def run():
         prices = fn()
         if prices:
             results[brand] = prices
-        time.sleep(1.5)  # пауза между запросами
+        time.sleep(1.5)
 
     output = {
         "updated": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
@@ -308,12 +255,16 @@ def run():
         "aliases": BRAND_ALIASES,
     }
 
+    # Резервная копия локально
     with open("prices.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
+    # Загружаем в облако
+    upload_to_jsonbin(output)
+
     print()
     print("=" * 50)
-    print(f"✅ Готово! Сохранено в prices.json")
+    print("Готово! Сохранено в prices.json")
     print(f"   Брендов с ценами: {len(results)}")
     for b, p in results.items():
         print(f"   {b}: {p}")

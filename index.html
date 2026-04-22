@@ -464,7 +464,7 @@
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
     <div class="loading-text">Загружаем все АЗС</div>
-    <div class="loading-sub">Санкт-Петербург и Ленинградская область<br>Данные: OpenStreetMap</div>
+    <div class="loading-sub">Санкт-Петербург и Ленинградская область<br>Подождите 5–10 секунд...</div>
   </div>
 
   <!-- Detail panel -->
@@ -487,6 +487,7 @@
   </div>
 </div>
 
+<script src="config.js" onerror="console.warn('config.js not found, using empty credentials')"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // ================================================================
@@ -518,15 +519,17 @@ let brandAliases = {};  // { "lukoil": "лукойл", ... }
 let pricesUpdated = '';
 
 // ================================================================
-// JSONBIN CONFIG
+// JSONBIN CONFIG (from config.js)
 // ================================================================
-const JSONBIN_BIN_ID = '69e79cb4856a68218959b94f';
-const JSONBIN_API_KEY = '$2a$10$xim0sZ1pskUobfoz7c0iQO7M9aNhCO05lBuDkQcZuK0PMOOMZKwee';
+const _cfg = window.CONFIG || {};
+const JSONBIN_BIN_ID  = _cfg.JSONBIN_BIN_ID  || '';
+const JSONBIN_API_KEY = _cfg.JSONBIN_API_KEY || '';
 
 // ================================================================
 // LOAD цен из JSONBin
 // ================================================================
 async function loadPrices() {
+  if (!JSONBIN_BIN_ID) { console.warn('[JSONBin] BIN_ID не задан'); return; }
   try {
     const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
       headers: { 'X-Master-Key': JSONBIN_API_KEY }
@@ -685,12 +688,15 @@ function buildMarkers() {
   Object.keys(markersMap).forEach(k => delete markersMap[k]);
 
   allStations.forEach(s => {
+    const stPrices = getPricesForStation(s);
+    if (!Object.values(stPrices).some(v => v !== null)) return;
+
     const marker = L.marker([s.lat, s.lon], {
       icon: createMarkerIcon(s, false)
     }).addTo(map);
 
     const priceChips = ['92','95','100','dt'].map(f => {
-      const p = getPricesForStation(s)[f];
+      const p = stPrices[f];
       const label = f === 'dt' ? 'ДТ' : `АИ-${f}`;
       const colorVar = `var(--fuel-${f})`;
       return p
@@ -767,9 +773,10 @@ function renderList() {
   const fuelLabels = { '92':'АИ-92', '95':'АИ-95', '100':'АИ-100', 'dt':'ДТ' };
   const otherFuels = ['92','95','100','dt'].filter(f => f !== activeFuel);
 
-  // Find cheapest price for badge
+  // Find cheapest price for badge (only if exactly one station has it)
   const prices = list.map(s => getPricesForStation(s)[activeFuel]).filter(p => p !== null && p !== undefined);
   const cheapest = prices.length ? Math.min(...prices) : null;
+  const cheapestCount = cheapest !== null ? prices.filter(p => p === cheapest).length : 0;
 
   container.innerHTML = '';
 
@@ -782,7 +789,7 @@ function renderList() {
     const isActive = s.id === selectedId;
     const stPrices = getPricesForStation(s);
     const price = stPrices[activeFuel];
-    const isCheapest = cheapest !== null && price === cheapest;
+    const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
     const color = getBrandColor(s.brand || s.name);
 
     const card = document.createElement('div');
@@ -867,8 +874,10 @@ function openStation(id) {
     </div>
   `).join('');
 
-  const osmType = s.osmType === 'way' ? 'way' : 'node';
-  document.getElementById('popupOsmLink').href = `https://www.openstreetmap.org/${osmType}/${s.osmId}`;
+  const ymQuery = encodeURIComponent((s.brand || s.name || 'АЗС') + (s.address ? ' ' + s.address : ''));
+  const popupLink = document.getElementById('popupOsmLink');
+  popupLink.href = `https://yandex.ru/maps/?text=${ymQuery}&ll=${s.lon},${s.lat}&z=17&mode=search`;
+  popupLink.textContent = 'Открыть на Яндекс Картах ↗';
 
   document.getElementById('popupPanel').classList.add('open');
 
@@ -929,8 +938,11 @@ function closePanel() {
     return;
   }
 
-  document.getElementById('stationCount').innerHTML =
-    `Найдено <b>${allStations.length}</b> АЗС`;
+  const shownCount = allStations.filter(s => Object.values(getPricesForStation(s)).some(v => v !== null)).length;
+  const brandCount = Object.keys(brandPrices).length;
+  document.getElementById('stationCount').innerHTML = brandCount > 0
+    ? `Найдено <b>${shownCount}</b> АЗС · цены <b>${brandCount}</b> сетей`
+    : `Найдено <b>${shownCount}</b> АЗС · <span style="color:var(--muted)">цены не загружены</span>`;
 
   buildMarkers();
   renderList();
