@@ -573,35 +573,35 @@ function getPricesForStation(station) {
   return { '92': null, '95': null, '100': null, 'dt': null };
 }
 
-// Brand colors
-const brandColors = {
-  'лукойл': '#e8421a', 'lukoil': '#e8421a',
-  'газпром': '#0070c0', 'gazprom': '#0070c0',
-  'роснефть': '#f5a623', 'rosneft': '#f5a623',
-  'shell': '#e8b000',
-  'bp': '#006f3c',
-  'татнефть': '#008000', 'tatneft': '#008000',
-  'сургут': '#1a5c8a',
-  'neste': '#006ca0',
-  'esso': '#c00',
-  'птк': '#d22',
-  'фаэтон': '#333',
-  'кинеф': '#555',
-  'aven': '#0066cc',
-  'default': '#f5a623'
-};
+// Нормализация названий брендов
+const BRAND_NAMES = [
+  [['лукойл','lukoil'],           'Лукойл'],
+  [['газпром','gazprom','gpn'],    'Газпром нефть'],
+  [['роснефть','rosneft'],         'Роснефть'],
+  [['птк','ptk'],                  'ПТК'],
+  [['neste','несте'],              'Neste'],
+  [['фаэтон','faeton'],            'Фаэтон'],
+  [['татнефть','tatneft'],         'Татнефть'],
+  [['shell'],                      'Shell'],
+  [['кинеф','kinef'],              'Кинеф'],
+  [['авро','avro'],                'Авро'],
+  [['трасса','trassa'],            'Трасса'],
+  [['esso','эссо'],                'Esso'],
+  [['bp','бп'],                    'BP'],
+  [['сургут'],                     'Сургутнефтегаз'],
+];
 
-function getBrandColor(name) {
-  if (!name) return brandColors.default;
-  const n = name.toLowerCase();
-  for (const [key, color] of Object.entries(brandColors)) {
-    if (n.includes(key)) return color;
+function normalizeBrandName(raw) {
+  if (!raw) return null;
+  const n = raw.toLowerCase();
+  for (const [keys, label] of BRAND_NAMES) {
+    if (keys.some(k => n.includes(k))) return label;
   }
-  return brandColors.default;
+  return null;
 }
 
-function getStationName(tags) {
-  return tags.brand || tags.name || tags.operator || 'АЗС';
+function getDisplayName(station) {
+  return normalizeBrandName(station.brand) || normalizeBrandName(station.name) || station.name || 'АЗС';
 }
 
 function parsePrice(val) {
@@ -674,25 +674,24 @@ function calcAvgPrice(fuel) {
 
 function markerColor(station, fuel, avg) {
   const price = getPricesForStation(station)[fuel];
-  if (price === null || price === undefined || avg === null) return '#f5a623';
+  if (price === null || price === undefined || avg === null) return '#6b7280';
   return price <= avg ? '#2ecc71' : '#e74c3c';
 }
 
 function createMarkerIcon(color, selected) {
-  const size = selected ? 40 : 30;
+  const size = selected ? 36 : 26;
   const html = `
     <div style="
       width:${size}px;height:${size}px;
-      border-radius:50% 50% 50% 0;
-      transform:rotate(-45deg);
+      border-radius:50%;
       background:${color};
       display:flex;align-items:center;justify-content:center;
-      border:${selected ? '2.5px solid rgba(255,255,255,0.9)' : '1.5px solid rgba(255,255,255,0.25)'};
-      box-shadow:0 2px ${selected ? 16 : 6}px rgba(0,0,0,0.5);
+      border:${selected ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.4)'};
+      box-shadow:0 2px ${selected ? 12 : 4}px rgba(0,0,0,0.6);
     ">
-      <span style="transform:rotate(45deg);font-size:${selected ? 18 : 13}px">⛽</span>
+      <span style="font-size:${selected ? 16 : 12}px;line-height:1">⛽</span>
     </div>`;
-  return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size] });
+  return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
 }
 
 function updateMarkerColors() {
@@ -740,7 +739,7 @@ function buildMarkers() {
     }).filter(Boolean).join('');
 
     marker.bindPopup(`
-      <div class="map-popup-name">${s.name}</div>
+      <div class="map-popup-name">${getDisplayName(s)}</div>
       <div class="map-popup-addr">${s.address || ''}</div>
       <div class="map-popup-prices">${priceChips}</div>
       <button class="map-popup-btn" onclick="openStation(${s.id})">Подробнее →</button>
@@ -798,7 +797,7 @@ function getFilteredSorted() {
       return pb - pa;
     });
   } else {
-    list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    list.sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
   }
 
   return list;
@@ -827,7 +826,7 @@ function renderList() {
     const stPrices = getPricesForStation(s);
     const price = stPrices[activeFuel];
     const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
-    const color = getBrandColor(s.brand || s.name);
+    const displayName = getDisplayName(s);
 
     const card = document.createElement('div');
     card.className = 'station-card' + (isActive ? ' active' : '');
@@ -836,8 +835,8 @@ function renderList() {
     card.innerHTML = `
       <div class="card-top">
         <div style="flex:1;padding-right:8px">
-          <div class="station-name" style="color:${color}">
-            ${s.name}
+          <div class="station-name">
+            ${displayName}
             ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
           </div>
           <div class="station-addr">📍 ${s.address || 'Адрес не указан'}</div>
@@ -875,8 +874,9 @@ function openStation(id) {
   });
 
   // Fill popup
-  document.getElementById('popupBrand').textContent = s.brand || '';
-  document.getElementById('popupTitle').textContent = s.name;
+  const displayName = getDisplayName(s);
+  document.getElementById('popupBrand').textContent = s.brand ? displayName : '';
+  document.getElementById('popupTitle').textContent = s.brand ? (s.address || displayName) : displayName;
   document.getElementById('popupAddr').textContent = '📍 ' + (s.address || 'Адрес не указан');
 
   const fuelData = [
