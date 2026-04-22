@@ -44,7 +44,14 @@ jobs:
           git add prices.json
           git diff --staged --quiet && echo "Цены не изменились, коммит не нужен" || git commit -m "Автообновление цен $(date +'%d.%m.%Y %H:%M')"
           for i in 1 2 3; do
-            git pull --rebase -X ours && git push && break
+            git pull --rebase -X ours
+            if git push; then
+              echo "Push успешен с попытки $i"
+              break
+            elif [ "$i" -eq 3 ]; then
+              echo "Не удалось запушить после 3 попыток"
+              exit 1
+            fi
             echo "Попытка $i не удалась, повтор через 5 сек..."
             sleep 5
           done
