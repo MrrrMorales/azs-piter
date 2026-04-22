@@ -734,6 +734,7 @@ function buildMarkers() {
       icon: createMarkerIcon(markerColor(s, activeFuel, avg), false)
     });
 
+    const stPrices = getPricesForStation(s);
     const priceChips = ['92','95','100','dt'].map(f => {
       const p = stPrices[f];
       const label = f === 'dt' ? 'ДТ' : `АИ-${f}`;
