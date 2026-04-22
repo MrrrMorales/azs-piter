@@ -644,7 +644,7 @@ async function loadStations() {
     allStations = data.map(s => ({
       ...s,
       prices: { '92': null, '95': null, '100': null, 'dt': null }
-    })).filter(s => s.lat && s.lon);
+    })).filter(s => s.lat && s.lon && s.lon > 28.2 && s.lon < 35.5 && s.lat > 58.7 && s.lat < 61.4);
 
     stationById = {};
     allStations.forEach(s => { stationById[s.id] = s; });
@@ -747,13 +747,9 @@ function buildMarkers() {
 
   shownStationCount = 0;
 
-  const pricesLoaded = Object.keys(brandPrices).length > 0;
   const avg = calcAvgPrice(activeFuel);
 
   allStations.forEach(s => {
-    const stPrices = getPricesForStation(s);
-    if (pricesLoaded && !Object.values(stPrices).some(v => v !== null)) return;
-
     shownStationCount++;
 
     const marker = L.marker([s.lat, s.lon], {
@@ -786,13 +782,6 @@ function buildMarkers() {
 // ================================================================
 function getFilteredSorted() {
   let list = [...allStations];
-
-  if (Object.keys(brandPrices).length > 0) {
-    list = list.filter(s => {
-      const p = getPricesForStation(s);
-      return Object.values(p).some(v => v !== null && v !== undefined);
-    });
-  }
 
   // Search
   if (searchQuery) {
