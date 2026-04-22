@@ -252,6 +252,14 @@
       letter-spacing: 0.5px; margin-left: 6px;
       vertical-align: middle;
     }
+    .badge-live {
+      font-size: 9px; font-weight: 700;
+      background: #22c55e22; color: #22c55e;
+      border: 1px solid #22c55e55;
+      border-radius: 3px; padding: 2px 5px;
+      letter-spacing: 0.5px; margin-left: 6px;
+      vertical-align: middle;
+    }
 
     /* MAP */
     #map { flex: 1; }
@@ -521,6 +529,7 @@ let markerCluster = null;
 let brandPrices = {};
 let brandAliases = {};
 let pricesUpdated = '';
+let stationPrices = {};   // per-station prices: {osmId -> {92,95,100,dt,source,updated}}
 const priceCache = new Map(); // мемоизация getPricesForStation
 
 // ================================================================
@@ -535,12 +544,17 @@ const BRAND_INFO = {
   'teboil':           { phone: '8 800 775-22-10', hours: 'Круглосуточно', url: 'https://teboil.ru' },
   'neste':            { phone: '8 800 200-63-30', hours: 'Круглосуточно', url: 'https://neste.ru' },
   'татнефть':         { phone: '8 800 200-08-84', hours: 'Круглосуточно', url: 'https://tatneft.ru' },
-  'сургутнефтегаз':   { phone: '',                hours: 'Круглосуточно', url: 'https://surgutneftegas.ru' },
+  'сургутнефтегаз':   { phone: '8 800 100-10-96', hours: 'Круглосуточно', url: 'https://surgutneftegas.ru' },
   'shell':            { phone: '',                hours: 'Круглосуточно', url: '' },
-  'кинеф':            { phone: '',                hours: 'Круглосуточно', url: '' },
+  'кинеф':            { phone: '8 813 62 6-40-51', hours: 'Круглосуточно', url: 'https://kinef.ru' },
   'авро':             { phone: '',                hours: 'Круглосуточно', url: '' },
-  'трасса':           { phone: '',                hours: 'Круглосуточно', url: '' },
+  'трасса':           { phone: '',                hours: 'Круглосуточно', url: 'https://trassa.ru' },
   'esso':             { phone: '',                hours: 'Круглосуточно', url: '' },
+  'nord point':       { phone: '',                hours: 'Круглосуточно', url: '' },
+  'bp':               { phone: '',                hours: 'Круглосуточно', url: '' },
+  'фаэтон':           { phone: '',                hours: 'Круглосуточно', url: '' },
+  'линос':            { phone: '',                hours: 'Круглосуточно', url: '' },
+  'втк':              { phone: '',                hours: 'Круглосуточно', url: '' },
 };
 
 function getBrandInfo(station) {
@@ -550,11 +564,12 @@ function getBrandInfo(station) {
 }
 
 // ================================================================
-// LOAD цен из prices.json (работает на localhost и GitHub Pages)
+// LOAD цен из prices.json + station_prices.json
 // ================================================================
 async function loadPrices() {
+  // Загружаем сетевые цены по брендам
   try {
-    const r = await fetch('prices.json');
+    const r = await fetch('prices.json?' + Date.now());
     if (!r.ok) throw new Error('prices.json ' + r.status);
     const data = await r.json();
     brandPrices = data.prices || {};
@@ -566,36 +581,78 @@ async function loadPrices() {
   } catch (e) {
     console.warn('[prices.json] ошибка:', e.message);
   }
+
+  // Загружаем индивидуальные цены по каждой АЗС
+  try {
+    const r2 = await fetch('station_prices.json?' + Date.now());
+    if (r2.ok) {
+      const data2 = await r2.json();
+      stationPrices = data2.stations || {};
+      console.log('[station_prices.json] загружено:', Object.keys(stationPrices).length, 'станций с индив. ценами');
+    }
+  } catch (e) {
+    console.warn('[station_prices.json] ошибка:', e.message);
+  }
 }
 
-// Получить цены для конкретной заправки по бренду/названию
+// Получить цены для конкретной заправки (3 уровня приоритета)
 function getPricesForStation(station) {
   const cacheKey = station.id;
   if (priceCache.has(cacheKey)) return priceCache.get(cacheKey);
 
-  // Сначала смотрим OSM-цены (если есть)
-  const osmPrices = station.prices;
-  const hasAny = Object.values(osmPrices).some(v => v !== null && v !== undefined);
-  if (hasAny) { priceCache.set(cacheKey, osmPrices); return osmPrices; }
-
-  // Иначе ищем по бренду в prices.json
-  const raw = (station.brand || station.name || '').toLowerCase().trim();
   let result = null;
-  if (brandPrices[raw]) {
-    result = brandPrices[raw];
-  } else {
-    for (const [alias, canonical] of Object.entries(brandAliases)) {
-      if (raw.includes(alias) && brandPrices[canonical]) { result = brandPrices[canonical]; break; }
-    }
-    if (!result) {
-      for (const key of Object.keys(brandPrices)) {
-        if (raw.includes(key) || key.includes(raw)) { result = brandPrices[key]; break; }
+  let source = 'network';
+
+  // 1. Индивидуальные цены из station_prices.json (от API бренда)
+  const sp = stationPrices[String(station.id)];
+  if (sp) {
+    result = { '92': sp['92'] || null, '95': sp['95'] || null, '100': sp['100'] || null, 'dt': sp['dt'] || null };
+    // Добавляем G-Drive 95 как отдельное поле если есть
+    if (sp['95_premium']) result['95_premium'] = sp['95_premium'];
+    source = sp.source || 'live';
+  }
+
+  // 2. OSM-цены (если в базе OpenStreetMap есть актуальные данные)
+  if (!result) {
+    const osmPrices = station.prices;
+    const hasAny = osmPrices && Object.values(osmPrices).some(v => v !== null && v !== undefined);
+    if (hasAny) { result = osmPrices; source = 'osm'; }
+  }
+
+  // 3. Средние цены по сети (prices.json)
+  if (!result) {
+    const raw = (station.brand || station.name || '').toLowerCase().trim();
+    if (brandPrices[raw]) {
+      result = brandPrices[raw];
+    } else {
+      for (const [alias, canonical] of Object.entries(brandAliases)) {
+        if (raw.includes(alias) && brandPrices[canonical]) { result = brandPrices[canonical]; break; }
+      }
+      if (!result) {
+        for (const key of Object.keys(brandPrices)) {
+          if (raw.includes(key) || key.includes(raw)) { result = brandPrices[key]; break; }
+        }
       }
     }
+    if (result) source = 'network';
   }
-  result = result || { '92': null, '95': null, '100': null, 'dt': null };
-  priceCache.set(cacheKey, result);
-  return result;
+
+  const final = result
+    ? { ...result, _source: source }
+    : { '92': null, '95': null, '100': null, 'dt': null, _source: 'none' };
+  priceCache.set(cacheKey, final);
+  return final;
+}
+
+// Метка источника цен для отображения в карточке
+function getPriceSourceLabel(prices) {
+  const src = prices._source;
+  if (!src || src === 'none') return null;
+  if (src === 'network') return { text: 'по сети', cls: 'price-source-network' };
+  if (src === 'osm')     return { text: 'OSM', cls: 'price-source-osm' };
+  // live brand API — показываем время обновления если есть
+  const sp = stationPrices && prices._stationId && stationPrices[prices._stationId];
+  return { text: 'актуально', cls: 'price-source-live' };
 }
 
 // Нормализация названий брендов
@@ -831,6 +888,7 @@ function renderList() {
     const price = stPrices[activeFuel];
     const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
     const displayName = getDisplayName(s);
+    const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
 
     const card = document.createElement('div');
     card.className = 'station-card' + (isActive ? ' active' : '');
@@ -842,6 +900,7 @@ function renderList() {
           <div class="station-name">
             ${displayName}
             ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
+            ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
           </div>
           <div class="station-addr">📍 ${s.address || 'Адрес не указан'}</div>
         </div>
@@ -883,26 +942,57 @@ function openStation(id) {
   document.getElementById('popupTitle').textContent = s.brand ? (s.address || displayName) : displayName;
   document.getElementById('popupAddr').textContent = '📍 ' + (s.address || 'Адрес не указан');
 
+  const stPrices = getPricesForStation(s);
+  const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
+  const hasNetworkPrices = stPrices._source === 'network';
+
+  // Основные 4 вида топлива
   const fuelData = [
-    { key: '92', label: 'АИ-92' },
-    { key: '95', label: 'АИ-95' },
+    { key: '92',  label: 'АИ-92' },
+    { key: '95',  label: 'АИ-95' },
     { key: '100', label: 'АИ-100' },
-    { key: 'dt', label: 'ДТ' }
+    { key: 'dt',  label: 'ДТ' }
   ];
 
-  const stPrices = getPricesForStation(s);
-  const priceSource = Object.values(s.prices).some(v => v !== null) ? 'OSM' : (Object.values(stPrices).some(v => v !== null) ? 'сайт сети' : null);
-
-  document.getElementById('popupPrices').innerHTML = fuelData.map(f => {
+  // Строим карточки цен
+  let priceCards = fuelData.map(f => {
     const p = stPrices[f.key];
     return `
       <div class="popup-price-card" data-f="${f.key}">
         <div class="fuel-name">${f.label}</div>
         <div class="fuel-val">${p !== null && p !== undefined ? p : '—'}</div>
-        <div class="fuel-unit">${p !== null && p !== undefined ? 'руб/литр' : 'нет данных'}</div>
+        <div class="fuel-unit">${p !== null && p !== undefined ? 'руб/л' : 'нет данных'}</div>
       </div>
     `;
-  }).join('') + (priceSource ? `<div style="grid-column:1/-1;font-size:10px;color:var(--muted);margin-top:4px">Источник цен: ${priceSource}${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}</div>` : '');
+  }).join('');
+
+  // Если есть G-Drive 95 premium — добавить отдельной карточкой
+  if (stPrices['95_premium'] != null) {
+    priceCards += `
+      <div class="popup-price-card" data-f="95_premium" style="border-color:#f59e0b55">
+        <div class="fuel-name" style="color:#f59e0b">G-Drive 95</div>
+        <div class="fuel-val">${stPrices['95_premium']}</div>
+        <div class="fuel-unit">руб/л</div>
+      </div>
+    `;
+  }
+
+  // Метка источника цен
+  let sourceHtml = '';
+  if (hasLivePrices) {
+    const sp = stationPrices[String(s.id)];
+    const upd = sp && sp.updated ? sp.updated : '';
+    sourceHtml = `<div style="grid-column:1/-1;display:flex;align-items:center;gap:6px;margin-top:6px">
+      <span style="background:#22c55e22;color:#22c55e;border:1px solid #22c55e44;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:600">● АКТУАЛЬНО</span>
+      <span style="font-size:10px;color:var(--muted)">Источник: ${stPrices._source}${upd ? ' · ' + upd : ''}</span>
+    </div>`;
+  } else if (hasNetworkPrices) {
+    sourceHtml = `<div style="grid-column:1/-1;margin-top:6px;font-size:10px;color:var(--muted)">
+      ⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}
+    </div>`;
+  }
+
+  document.getElementById('popupPrices').innerHTML = priceCards + sourceHtml;
 
   const info = getBrandInfo(s);
   const infoRows = [
@@ -917,7 +1007,7 @@ function openStation(id) {
       <span class="ikey">${r.key}:</span>
       <span class="ival">${r.val}</span>
     </div>
-  `).join('') + `<div style="margin-top:6px;font-size:10px;color:var(--muted)">⚠ Цены единые по сети — на конкретной АЗС могут отличаться</div>`;
+  `).join('');
 
   const ymName = encodeURIComponent(getDisplayName(s) + ' АЗС');
   const popupLink = document.getElementById('popupOsmLink');

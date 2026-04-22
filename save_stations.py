@@ -60,7 +60,32 @@ def is_gas_only(tags):
     return has_lpg_only
 
 def get_name(tags):
-    return tags.get('brand') or tags.get('name') or tags.get('operator') or 'АЗС'
+    brand = tags.get('brand') or ''
+    name  = tags.get('name')  or ''
+    operator = tags.get('operator') or ''
+    # Используем name если оно содержит что-то сверх бренда (уникальное название)
+    if name and brand and name.lower().strip() != brand.lower().strip():
+        return name
+    return brand or name or operator or 'АЗС'
+
+
+def get_address(tags):
+    street  = tags.get('addr:street', '')
+    house   = tags.get('addr:housenumber', '')
+    city    = tags.get('addr:city', '') or tags.get('addr:place', '')
+    # addr:city включаем только если это не СПб (чтобы не засорять карточки)
+    spb_variants = {'санкт-петербург', 'saint petersburg', 'st. petersburg', 'спб', 'с.-петербург'}
+    city_part = city if city.lower() not in spb_variants else ''
+
+    parts = []
+    if street:
+        parts.append(street + (f', {house}' if house else ''))
+    elif house:
+        parts.append(house)
+    if city_part:
+        parts.append(city_part)
+    return ', '.join(parts)
+
 
 seen_ids = set()
 stations = []
@@ -86,11 +111,7 @@ for el in raw['elements']:
         'lon':  lon,
         'name':   get_name(tags),
         'brand':  tags.get('brand') or tags.get('operator') or '',
-        'address': ' '.join(filter(None, [
-            tags.get('addr:city', ''),
-            tags.get('addr:street', ''),
-            tags.get('addr:housenumber', ''),
-        ])).strip(),
+        'address': get_address(tags),
         'opening_hours': tags.get('opening_hours', ''),
         'phone': tags.get('phone') or tags.get('contact:phone') or '',
     })
