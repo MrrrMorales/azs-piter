@@ -1018,7 +1018,13 @@ function openStation(id) {
   `).join('');
 
   const popupLink = document.getElementById('popupOsmLink');
-  popupLink.href = `https://yandex.ru/maps/?ll=${s.lon},${s.lat}&z=17&pt=${s.lon},${s.lat}`;
+  const yandexQuery = s.brand || s.name;
+  if (yandexQuery) {
+    // sll + sspn ограничивают поиск радиусом ~110м — в таком радиусе одна заправка сети
+    popupLink.href = `https://yandex.ru/maps/?ll=${s.lon},${s.lat}&z=17&text=${encodeURIComponent(yandexQuery)}&sll=${s.lon},${s.lat}&sspn=0.002,0.001&type=biz`;
+  } else {
+    popupLink.href = `https://yandex.ru/maps/?ll=${s.lon},${s.lat}&z=17&pt=${s.lon},${s.lat}`;
+  }
   popupLink.textContent = 'Открыть на Яндекс Картах ↗';
 
   document.getElementById('popupPanel').classList.add('open');
