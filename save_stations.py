@@ -59,6 +59,14 @@ def is_gas_only(tags):
     has_lpg_only = tags.get('fuel:lpg') == 'yes' and not has_petrol and not has_diesel
     return has_lpg_only
 
+def get_fuels(tags):
+    fuels = []
+    if tags.get('fuel:octane_92') == 'yes': fuels.append('92')
+    if tags.get('fuel:octane_95') == 'yes': fuels.append('95')
+    if tags.get('fuel:octane_98') == 'yes' or tags.get('fuel:octane_100') == 'yes': fuels.append('100')
+    if tags.get('fuel:diesel') == 'yes' or tags.get('fuel:HGV_diesel') == 'yes': fuels.append('dt')
+    return fuels
+
 def get_name(tags):
     brand = tags.get('brand') or ''
     name  = tags.get('name')  or ''
@@ -104,7 +112,8 @@ for el in raw['elements']:
     if is_gas_only(tags):
         continue
 
-    stations.append({
+    fuels = get_fuels(tags)
+    station = {
         'id':   eid,
         'type': el['type'],
         'lat':  lat,
@@ -114,7 +123,10 @@ for el in raw['elements']:
         'address': get_address(tags),
         'opening_hours': tags.get('opening_hours', ''),
         'phone': tags.get('phone') or tags.get('contact:phone') or '',
-    })
+    }
+    if fuels:
+        station['fuels'] = fuels
+    stations.append(station)
 
 with open('stations.json', 'w', encoding='utf-8') as f:
     json.dump(stations, f, ensure_ascii=False, separators=(',', ':'))

@@ -1160,8 +1160,16 @@ function openStation(id) {
     { key: 'dt',  label: 'ДТ' }
   ];
 
+  // Если OSM знает ассортимент — показываем только подтверждённые виды топлива
+  const osmFuels = (s.fuels && s.fuels.length) ? new Set(s.fuels) : null;
+  const visibleFuelData = fuelData.filter(f => {
+    if (!osmFuels) return true;
+    if (stPrices._source !== 'network' && stPrices[f.key] != null) return true;
+    return osmFuels.has(f.key);
+  });
+
   // Строим карточки цен
-  let priceCards = fuelData.map(f => {
+  let priceCards = visibleFuelData.map(f => {
     const p = stPrices[f.key];
     return `
       <div class="popup-price-card" data-f="${f.key}">
