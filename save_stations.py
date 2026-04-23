@@ -46,7 +46,7 @@ except Exception as e:
     sys.exit(1)
 
 # Ключевые слова чисто-газовых станций (АГЗС, LPG, метан) — исключаем
-GAS_ONLY = {'агзс', 'автогаз', 'газозаправочная', 'lpg', 'метан', 'cng', 'пропан', 'gnv'}
+GAS_ONLY = {'агзс', 'автогаз', 'газозаправочная', 'lpg', 'метан', 'cng', 'пропан', 'gnv', 'росгаз', 'агнс', 'агнкс'}
 
 def is_gas_only(tags):
     name = (tags.get('name') or tags.get('brand') or '').lower()
