@@ -143,6 +143,19 @@
     .fuel-tab.active[data-fuel="100"] { background: var(--fuel-100); color: #fff; }
     .fuel-tab.active[data-fuel="dt"] { background: var(--fuel-dt); color: #fff; }
 
+    .open-now-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 14px 10px;
+      font-size: 13px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .open-now-toggle input { accent-color: #4caf50; width: 15px; height: 15px; cursor: pointer; }
+    .open-now-toggle:has(input:checked) span { color: #4caf50; }
+
     .sort-bar {
       padding: 8px 14px;
       border-bottom: 1px solid var(--border);
@@ -452,6 +465,10 @@
         <div class="fuel-tab" data-fuel="100">АИ-100</div>
         <div class="fuel-tab" data-fuel="dt">ДТ</div>
       </div>
+      <label class="open-now-toggle">
+        <input type="checkbox" id="openNowCheck">
+        <span>Только открытые сейчас</span>
+      </label>
     </div>
     <div class="sort-bar">
       <label>Сортировать:</label>
@@ -535,6 +552,7 @@ let stationById = {};   // O(1) lookup by id
 let activeFuel = '92';
 let selectedId = null;
 let searchQuery = '';
+let showOpenOnly = false;
 const markersMap = {};
 let markerCluster = null;
 let brandPrices = {};
@@ -855,10 +873,167 @@ function buildMarkers() {
 }
 
 // ================================================================
+// OPENING HOURS PARSER
+// ================================================================
+// Returns true if open, false if closed, null if unknown.
+// Handles OSM opening_hours subset: 24/7, bare time ranges, Mo-Su prefixed rules.
+function isOpenNow(oh) {
+  if (!oh || oh.trim() === '') return null;
+  oh = oh.trim();
+  if (oh === '24/7') return true;
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  // JS: 0=Sun,1=Mon..6=Sat → map to OSM Mo=0..Su=6
+  const jsDay = now.getDay(); // 0=Sun
+  const osmDay = jsDay === 0 ? 6 : jsDay - 1; // Mo=0..Su=6
+
+  const DAY_MAP = { mo:0, tu:1, we:2, th:3, fr:4, sa:5, su:6 };
+
+  function parseTime(t) {
+    t = t.trim();
+    const m = t.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return parseInt(m[1]) * 60 + parseInt(m[2]);
+  }
+
+  // Check if nowMin is inside [start,end) — handles overnight wrap
+  function inRange(start, end) {
+    if (start === null || end === null) return false;
+    if (end <= start) {
+      // overnight: 22:00-06:00 → open if after start OR before end
+      return nowMin >= start || nowMin < end;
+    }
+    return nowMin >= start && nowMin < end;
+  }
+
+  // Parse day range like "Mo-Su" or "Mo" → does it include osmDay?
+  function dayMatches(dayStr) {
+    if (!dayStr) return true; // no day prefix → applies every day
+    dayStr = dayStr.toLowerCase().trim();
+    if (dayStr.includes('-')) {
+      const [from, to] = dayStr.split('-').map(d => DAY_MAP[d.trim()]);
+      if (from === undefined || to === undefined) return true;
+      if (to >= from) return osmDay >= from && osmDay <= to;
+      // wrap like Sa-Mo
+      return osmDay >= from || osmDay <= to;
+    }
+    const d = DAY_MAP[dayStr];
+    return d === undefined ? true : osmDay === d;
+  }
+
+  // Parse one rule like "Mo-Su 09:30-21:00,21:30-09:00" or "09:30-21:00"
+  function ruleOpen(rule) {
+    rule = rule.trim();
+    // Try day-prefix pattern: "Mo-Su HH:MM-HH:MM,..."
+    const dayMatch = rule.match(/^([A-Za-z]{2}(?:-[A-Za-z]{2})?(?:,\s*[A-Za-z]{2}(?:-[A-Za-z]{2})?)*)\s+(.+)$/);
+    let timePart;
+    if (dayMatch) {
+      // check each day selector
+      const daySelectors = dayMatch[1].split(',');
+      const dayOk = daySelectors.some(ds => dayMatches(ds));
+      if (!dayOk) return false;
+      timePart = dayMatch[2];
+    } else {
+      timePart = rule;
+    }
+    // timePart may have multiple ranges separated by comma
+    const ranges = timePart.split(',');
+    return ranges.some(r => {
+      const parts = r.trim().split('-');
+      if (parts.length < 2) return false;
+      // handle HH:MM-HH:MM (the '-' in time sep is tricky if multiple dashes)
+      // format: "09:30-21:00"
+      const tMatch = r.trim().match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
+      if (!tMatch) return false;
+      return inRange(parseTime(tMatch[1]), parseTime(tMatch[2]));
+    });
+  }
+
+  // Split by ";" (multiple rules)
+  const rules = oh.split(';');
+  // A station is open if ANY rule says open (simplified — ignores rule priority)
+  const results = rules.map(r => ruleOpen(r.trim()));
+  if (results.some(r => r === true)) return true;
+  if (results.every(r => r === false)) return false;
+  return null;
+}
+
+// Converts OSM opening_hours to human-readable Russian string.
+function formatOpeningHours(oh) {
+  if (!oh || oh.trim() === '') return null;
+  oh = oh.trim();
+  if (oh === '24/7') return 'Круглосуточно';
+
+  const RU_DAYS = { mo:'Пн', tu:'Вт', we:'Ср', th:'Чт', fr:'Пт', sa:'Сб', su:'Вс' };
+
+  function fmtTime(t) {
+    // normalize "9:30" → "09:30"
+    return t.trim().replace(/^(\d):/, '0$1:');
+  }
+
+  function fmtDayRange(dr) {
+    dr = dr.trim().toLowerCase();
+    if (dr.includes('-')) {
+      const [a, b] = dr.split('-').map(d => RU_DAYS[d.trim()] || d);
+      // Mo-Su = every day
+      if (dr === 'mo-su') return 'Ежедневно';
+      return a + '–' + b;
+    }
+    return RU_DAYS[dr] || dr;
+  }
+
+  // Parse one rule like "Mo-Su 09:30-21:00,21:30-09:00" or bare "09:30-21:00"
+  function fmtRule(rule) {
+    rule = rule.trim();
+    // Try day prefix
+    const dm = rule.match(/^([A-Za-z]{2}(?:-[A-Za-z]{2})?(?:,\s*[A-Za-z]{2}(?:-[A-Za-z]{2})?)*)\s+(.+)$/);
+    let dayPart = '', timePart;
+    if (dm) {
+      // Multiple day selectors separated by comma
+      const daySelectors = dm[1].split(',').map(d => d.trim());
+      // collapse "Mo-Su, Mo-Su" duplicates
+      const uniq = [...new Set(daySelectors.map(d => d.toLowerCase()))];
+      if (uniq.length === 1 && uniq[0] === 'mo-su') {
+        dayPart = 'Ежедневно';
+      } else {
+        dayPart = uniq.map(fmtDayRange).join(', ');
+      }
+      timePart = dm[2];
+    } else {
+      timePart = rule;
+    }
+
+    // Format time ranges (comma-separated)
+    const timeRanges = [];
+    const re = /(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/g;
+    let m;
+    while ((m = re.exec(timePart)) !== null) {
+      timeRanges.push(fmtTime(m[1]) + '–' + fmtTime(m[2]));
+    }
+    if (!timeRanges.length) return null;
+
+    const timeStr = timeRanges.join(', ');
+    return dayPart ? dayPart + ' ' + timeStr : timeStr;
+  }
+
+  const parts = oh.split(';').map(r => fmtRule(r.trim())).filter(Boolean);
+  return parts.length ? parts.join('; ') : oh;
+}
+
+// ================================================================
 // RENDER SIDEBAR
 // ================================================================
 function getFilteredSorted() {
   let list = [...allStations];
+
+  // Open now filter
+  if (showOpenOnly) {
+    list = list.filter(s => {
+      const status = isOpenNow(s.opening_hours);
+      return status !== false; // open (true) и без данных (null) — показываем; закрыто (false) — скрываем
+    });
+  }
 
   // Search
   if (searchQuery) {
@@ -1028,8 +1203,23 @@ function openStation(id) {
   document.getElementById('popupPrices').innerHTML = priceCards + sourceHtml;
 
   const info = getBrandInfo(s);
+  // Format opening hours
+  const ohFormatted = formatOpeningHours(s.opening_hours);
+  const ohStatus = isOpenNow(s.opening_hours);
+  let hoursVal;
+  if (ohFormatted) {
+    const badge = ohStatus === true
+      ? '<span style="color:#4caf50;font-weight:600;margin-left:6px">· Открыто</span>'
+      : ohStatus === false
+        ? '<span style="color:#f87171;font-weight:600;margin-left:6px">· Закрыто</span>'
+        : '';
+    hoursVal = ohFormatted + badge;
+  } else {
+    // No OSM hours — use brand fallback but don't show open/closed
+    hoursVal = '<span style="color:var(--muted)">Нет данных о графике</span>';
+  }
   const infoRows = [
-    { key: 'Режим',   val: s.opening_hours || (info && info.hours) || 'Не указан' },
+    { key: 'Режим',   val: hoursVal },
     { key: 'Телефон', val: s.phone || (info && info.phone) || 'Не указан' },
   ];
   if (info && info.url) {
@@ -1074,6 +1264,11 @@ document.querySelectorAll('.fuel-tab').forEach(tab => {
 });
 
 document.getElementById('sortSelect').addEventListener('change', renderList);
+
+document.getElementById('openNowCheck').addEventListener('change', e => {
+  showOpenOnly = e.target.checked;
+  renderList();
+});
 
 document.getElementById('searchInput').addEventListener('input', e => {
   searchQuery = e.target.value.trim();
