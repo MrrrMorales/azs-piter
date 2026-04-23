@@ -535,26 +535,30 @@ const priceCache = new Map(); // мемоизация getPricesForStation
 // ================================================================
 // BRAND INFO — телефон, сайт, режим работы по умолчанию
 // ================================================================
+const _GPN  = { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' };
 const BRAND_INFO = {
   'лукойл':           { phone: '8 800 555-00-99', hours: 'Круглосуточно', url: 'https://lukoil.ru' },
-  'газпром нефть':    { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' },
-  'газпром':          { phone: '8 800 200-96-01', hours: 'Круглосуточно', url: 'https://azsgazprom.ru' },
-  'роснефть':         { phone: '8 800 200-08-88', hours: 'Круглосуточно', url: 'https://rosneft.ru' },
+  'газпромнефть':     _GPN,
+  'газпром нефть':    _GPN,
+  'газпром':          _GPN,
+  'роснефть':         { phone: '8 800 200-08-88', hours: 'Круглосуточно', url: 'https://az.rosneft.ru' },
   'птк':              { phone: '8 800 250-25-24', hours: 'Круглосуточно', url: 'https://ptk.ru' },
   'teboil':           { phone: '8 800 775-22-10', hours: 'Круглосуточно', url: 'https://teboil.ru' },
   'neste':            { phone: '8 800 200-63-30', hours: 'Круглосуточно', url: 'https://neste.ru' },
   'татнефть':         { phone: '8 800 200-08-84', hours: 'Круглосуточно', url: 'https://tatneft.ru' },
   'сургутнефтегаз':   { phone: '8 800 100-10-96', hours: 'Круглосуточно', url: 'https://surgutneftegas.ru' },
-  'shell':            { phone: '',                hours: 'Круглосуточно', url: '' },
+  'shell':            { phone: '8 800 100-33-78', hours: 'Круглосуточно', url: 'https://shell.ru' },
   'кинеф':            { phone: '8 813 62 6-40-51', hours: 'Круглосуточно', url: 'https://kinef.ru' },
-  'авро':             { phone: '',                hours: 'Круглосуточно', url: '' },
-  'трасса':           { phone: '',                hours: 'Круглосуточно', url: 'https://trassa.ru' },
-  'esso':             { phone: '',                hours: 'Круглосуточно', url: '' },
-  'nord point':       { phone: '',                hours: 'Круглосуточно', url: '' },
-  'bp':               { phone: '',                hours: 'Круглосуточно', url: '' },
-  'фаэтон':           { phone: '',                hours: 'Круглосуточно', url: '' },
-  'линос':            { phone: '',                hours: 'Круглосуточно', url: '' },
-  'втк':              { phone: '',                hours: 'Круглосуточно', url: '' },
+  'авро':             { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'трасса':           { phone: '',                 hours: 'Круглосуточно', url: 'https://trassa.ru' },
+  'esso':             { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'nord point':       { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'bp':               { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'фаэтон':           { phone: '',                 hours: 'Круглосуточно', url: 'https://faeton-azs.ru' },
+  'линос':            { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'втк':              { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'опти':             { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'санга':            { phone: '',                 hours: 'Круглосуточно', url: '' },
 };
 
 function getBrandInfo(station) {
@@ -622,7 +626,11 @@ function getPricesForStation(station) {
   // 3. Средние цены по сети (prices.json)
   if (!result) {
     const raw = (station.brand || station.name || '').toLowerCase().trim();
-    if (brandPrices[raw]) {
+    // Пробуем сначала нормализованное имя (например "газпромнефть"), потом raw
+    const normalized = (normalizeBrandName(station.brand) || normalizeBrandName(station.name) || '').toLowerCase();
+    if (brandPrices[normalized]) {
+      result = brandPrices[normalized];
+    } else if (brandPrices[raw]) {
       result = brandPrices[raw];
     } else {
       for (const [alias, canonical] of Object.entries(brandAliases)) {
@@ -1009,9 +1017,8 @@ function openStation(id) {
     </div>
   `).join('');
 
-  const ymName = encodeURIComponent(getDisplayName(s) + ' АЗС');
   const popupLink = document.getElementById('popupOsmLink');
-  popupLink.href = `https://yandex.ru/maps/?text=${ymName}&ll=${s.lon},${s.lat}&z=17&sll=${s.lon},${s.lat}&sspn=0.003,0.002&mode=search`;
+  popupLink.href = `https://yandex.ru/maps/?ll=${s.lon},${s.lat}&z=17&pt=${s.lon},${s.lat}`;
   popupLink.textContent = 'Открыть на Яндекс Картах ↗';
 
   document.getElementById('popupPanel').classList.add('open');
