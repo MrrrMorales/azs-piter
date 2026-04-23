@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>АЗС Санкт-Петербург и Ленобласть</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="lib/fonts/fonts.css" />
+  <link rel="stylesheet" href="lib/leaflet.css" />
+  <link rel="stylesheet" href="lib/MarkerCluster.css" />
+  <link rel="stylesheet" href="lib/MarkerCluster.Default.css" />
 
   <style>
     :root {
@@ -498,8 +498,8 @@
 </div>
 
 <script src="config.js" onerror="console.warn('config.js not found, using empty credentials')"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="lib/leaflet.js"></script>
+<script src="lib/leaflet.markercluster.js"></script>
 <script>
 // ================================================================
 // MAP INIT
@@ -511,10 +511,21 @@ const map = L.map('map', {
 });
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+const cartoTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CartoDB',
   maxZoom: 19
-}).addTo(map);
+});
+const osmTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap',
+  maxZoom: 19
+});
+cartoTiles.addTo(map);
+cartoTiles.on('tileerror', function() {
+  if (map.hasLayer(cartoTiles)) {
+    map.removeLayer(cartoTiles);
+    osmTiles.addTo(map);
+  }
+});
 
 // ================================================================
 // STATE
