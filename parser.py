@@ -401,9 +401,10 @@ def run():
         except Exception as e:
             print(f'  [!] Ошибка парсера: {e}')
 
-    if not results:
+    MIN_BRANDS = 5
+    if len(results) < MIN_BRANDS:
         print()
-        print('[prices.json] Нет данных ни с одного источника — старые цены НЕ перезаписываются')
+        print(f'[prices.json] Слишком мало брендов ({len(results)}) — старые цены НЕ перезаписываются')
         print('=' * 55)
         return
 
