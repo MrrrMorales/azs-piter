@@ -20,6 +20,7 @@ import time
 import argparse
 import urllib.request
 import urllib.parse
+from brands import display_name as _brand_display
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -30,52 +31,6 @@ DEFAULT_RADIUS = 100  # метры — радиус поиска вокруг к
 FUEL_RUBRIC_IDS = {
     '164027653704': True,  # Автозаправки (АЗС)
     '141265769337557': True,  # Заправочные станции
-}
-
-# Нормализация известных названий сетей
-BRAND_NORMALIZE = {
-    'лукойл': 'Лукойл',
-    'lukoil': 'Лукойл',
-    'газпромнефть': 'Газпромнефть',
-    'газпром нефть': 'Газпромнефть',
-    'gpn': 'Газпромнефть',
-    'роснефть': 'Роснефть',
-    'rosneft': 'Роснефть',
-    'neste': 'Neste',
-    'несте': 'Neste',
-    'татнефть': 'Татнефть',
-    'tatneft': 'Татнефть',
-    'teboil': 'Teboil',
-    'тебойл': 'Teboil',
-    'shell': 'Shell',
-    'птк': 'ПТК',
-    'ptk': 'ПТК',
-    'петербургская топливная': 'Петербургская топливная компания',
-    'пикалёвская топливная': 'Пикалёвская топливная компания',
-    'авро': 'Авро',
-    'трасса': 'Трасса',
-    'кинеф': 'Кинеф',
-    'киришиавтосервис': 'Киришиавтосервис',
-    'сургутнефтегаз': 'Сургутнефтегаз',
-    'esso': 'Esso',
-    'nord point': 'Nord Point',
-    'линос': 'Линос',
-    'linos': 'Линос',
-    'aris': 'Aris',
-    'китэк': 'КиТЭК',
-    'выборгская топливная': 'Выборгская топливная компания',
-    'втк': 'ВТК',
-    'санга': 'Санга',
-    'sanga': 'Санга',
-    'фаэтон': 'Фаэтон',
-    'фаэтон-аэро': 'Фаэтон',
-    'faeton': 'Фаэтон',
-    'shelf': 'Shelf',
-    'опти': 'Опти',
-    'opti': 'Опти',
-    'apn': 'APN',
-    'bp': 'BP',
-    'бп': 'BP',
 }
 
 
@@ -90,11 +45,7 @@ def haversine_m(lat1, lon1, lat2, lon2):
 
 def normalize_brand(raw_name):
     """Нормализует имя к эталонному написанию."""
-    n = raw_name.lower().strip()
-    for key, canonical in BRAND_NORMALIZE.items():
-        if key in n:
-            return canonical
-    return None
+    return _brand_display(raw_name)
 
 
 def search_2gis(lat, lon, radius, api_key):

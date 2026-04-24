@@ -2,12 +2,19 @@ name: Обновление цен на топливо
 
 on:
   schedule:
-    # Каждый день в 07:00 по московскому времени (04:00 UTC)
+    # Средние цены по сетям — раз в день в 07:00 МСК (04:00 UTC)
     - cron: '0 4 * * *'
-  workflow_dispatch:  # Кнопка ручного запуска в интерфейсе GitHub
+    # LIVE-цены ГПН — 4 раза в день (07:00, 11:00, 15:00, 19:00 МСК)
+    - cron: '0 4,8,12,16 * * *'
+  workflow_dispatch:
+    inputs:
+      skip_parser:
+        description: 'Пропустить parser.py (только station prices)'
+        required: false
+        default: 'false'
 
 jobs:
-  parse-prices:
+  update-prices:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -31,7 +38,8 @@ jobs:
       - name: Установить зависимости
         run: pip install -r requirements.txt
 
-      - name: Запустить парсер
+      - name: Обновить средние цены по брендам (parser.py)
+        if: ${{ github.event.inputs.skip_parser != 'true' && (github.event.schedule == '0 4 * * *' || github.event_name == 'workflow_dispatch') }}
         env:
           JSONBIN_BIN_ID:   ${{ secrets.JSONBIN_BIN_ID }}
           JSONBIN_API_KEY:  ${{ secrets.JSONBIN_API_KEY }}
@@ -39,12 +47,19 @@ jobs:
           PYTHONUTF8:       "1"
         run: python parser.py
 
-      - name: Сохранить prices.json в репозиторий
+      - name: Обновить LIVE-цены АЗС (fetch_per_station_prices.py)
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8:       "1"
+        run: python fetch_per_station_prices.py
+
+      - name: Сохранить обновлённые файлы в репозиторий
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add prices.json
-          git diff --staged --quiet && echo "Цены не изменились, коммит не нужен" || git commit -m "Автообновление цен $(date +'%d.%m.%Y %H:%M')"
+          git add prices.json station_prices.json
+          git diff --staged --quiet && echo "Данные не изменились, коммит не нужен" || \
+            git commit -m "Автообновление цен $(date +'%d.%m.%Y %H:%M UTC')"
           for i in 1 2 3; do
             git pull --rebase -X ours
             if git push; then

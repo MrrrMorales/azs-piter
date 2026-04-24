@@ -730,6 +730,18 @@ function getPricesForStation(station) {
   return final;
 }
 
+// Возраст данных по строке "DD.MM.YYYY HH:MM"
+function formatAge(dateStr) {
+  if (!dateStr) return null;
+  const m = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/);
+  if (!m) return dateStr;
+  const dt = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+  const diffH = Math.round((Date.now() - dt) / 3_600_000);
+  if (diffH < 1)  return 'только что';
+  if (diffH < 24) return `${diffH} ч назад`;
+  return `${Math.round(diffH / 24)} д назад`;
+}
+
 // Красивое имя источника цен
 function formatSourceName(src) {
   const names = {
@@ -1434,8 +1446,12 @@ function closePanel() {
   renderList();
 
   const brandCount = Object.keys(brandPrices).length;
+  const ageStr = formatAge(pricesUpdated);
+  const ageBadge = ageStr
+    ? ` · <span style="color:var(--muted)" title="Обновлено ${pricesUpdated}">⏱ ${ageStr}</span>`
+    : '';
   document.getElementById('stationCount').innerHTML = brandCount > 0
-    ? `Найдено <b>${shownStationCount}</b> АЗС · цены <b>${brandCount}</b> сетей`
+    ? `Найдено <b>${shownStationCount}</b> АЗС · цены <b>${brandCount}</b> сетей${ageBadge}`
     : `Найдено <b>${shownStationCount}</b> АЗС · <span style="color:var(--muted)">цены не загружены</span>`;
 })();
 </script>
