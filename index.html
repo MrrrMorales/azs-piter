@@ -686,15 +686,25 @@ function getPricesForStation(station) {
   return final;
 }
 
+// Красивое имя источника цен
+function formatSourceName(src) {
+  const names = {
+    'газпромнефть': 'Газпром нефть',
+    'лукойл': 'Лукойл',
+    'роснефть': 'Роснефть',
+    'птк': 'ПТК',
+    'татнефть': 'Татнефть',
+  };
+  return names[(src || '').toLowerCase()] || src;
+}
+
 // Метка источника цен для отображения в карточке
 function getPriceSourceLabel(prices) {
   const src = prices._source;
   if (!src || src === 'none') return null;
   if (src === 'network') return { text: 'по сети', cls: 'price-source-network' };
   if (src === 'osm')     return { text: 'OSM', cls: 'price-source-osm' };
-  // live brand API — показываем время обновления если есть
-  const sp = stationPrices && prices._stationId && stationPrices[prices._stationId];
-  return { text: 'актуально', cls: 'price-source-live' };
+  return { text: 'LIVE', cls: 'price-source-live' };
 }
 
 // Нормализация названий брендов
@@ -1196,13 +1206,19 @@ function openStation(id) {
   if (hasLivePrices) {
     const sp = stationPrices[String(s.id)];
     const upd = sp && sp.updated ? sp.updated : '';
+    const srcName = formatSourceName(stPrices._source);
     sourceHtml = `<div style="grid-column:1/-1;display:flex;align-items:center;gap:6px;margin-top:6px">
-      <span style="background:#22c55e22;color:#22c55e;border:1px solid #22c55e44;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:600">● АКТУАЛЬНО</span>
-      <span style="font-size:10px;color:var(--muted)">Источник: ${stPrices._source}${upd ? ' · ' + upd : ''}</span>
+      <span style="background:#22c55e22;color:#22c55e;border:1px solid #22c55e44;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:600">● LIVE</span>
+      <span style="font-size:10px;color:var(--muted)">${srcName}${upd ? ' · ' + upd : ''}</span>
     </div>`;
   } else if (hasNetworkPrices) {
+    const brand = (s.brand || s.name || '').toLowerCase();
+    const isGpn = brand.includes('газпром');
+    const networkNote = isGpn
+      ? '⚠ Индивидуальные цены не получены · средняя по сети'
+      : `⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}`;
     sourceHtml = `<div style="grid-column:1/-1;margin-top:6px;font-size:10px;color:var(--muted)">
-      ⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}
+      ${networkNote}
     </div>`;
   }
 

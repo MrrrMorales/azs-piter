@@ -32,7 +32,7 @@ OUTPUT_FILE = 'station_prices.json'
 # Координатные границы СПб + Ленобласть
 LAT_MIN, LAT_MAX = 58.5, 61.5
 LON_MIN, LON_MAX = 27.5, 33.5
-MATCH_RADIUS_KM = 0.25  # радиус совпадения OSM <-> бренд, км
+MATCH_RADIUS_KM = 0.40  # радиус совпадения OSM <-> бренд, км
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -157,6 +157,15 @@ def fetch_gpn(osm_stations):
     if not gpn_stations:
         return {}
 
+    # Матчим только по ГПН-станциям OSM — не допускаем ложных совпадений с другими брендами
+    gpn_keywords = ('газпром', 'gpn', 'gazprom')
+    gpn_osm = [
+        s for s in osm_stations
+        if any(kw in (s.get('brand') or '').lower() or kw in (s.get('name') or '').lower()
+               for kw in gpn_keywords)
+    ]
+    print(f'[GPN] ГПН-станций в OSM для матчинга: {len(gpn_osm)}')
+
     results = {}
     matched = 0
     no_match = 0
@@ -178,8 +187,8 @@ def fetch_gpn(osm_stations):
             time.sleep(GPN_DELAY)
             continue
 
-        # Найти ближайшую OSM-станцию
-        osm, dist = find_nearest(osm_stations, lat, lon)
+        # Найти ближайшую ГПН-станцию в OSM
+        osm, dist = find_nearest(gpn_osm, lat, lon)
         if osm:
             entry = {
                 'source': 'газпромнефть',
