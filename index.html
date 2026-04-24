@@ -1213,8 +1213,12 @@ function renderList() {
     const stPrices = getPricesForStation(s);
     const price = stPrices[activeFuel];
     const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
-    const displayName = getDisplayName(s);
     const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
+    const cardSourceBrand = formatSourceName(hasLivePrices ? stPrices._source : null);
+    const cardEffectiveBrand = s.brand || cardSourceBrand || null;
+    const displayName = cardEffectiveBrand
+      ? (normalizeBrandName(cardEffectiveBrand) || cardEffectiveBrand)
+      : getDisplayName(s);
     const stStatus = getStationStatus(s);
     const isClosed = stStatus && stStatus.status === 'closed';
 
@@ -1270,9 +1274,12 @@ function openStation(id) {
   });
 
   // Fill popup
-  const displayName = getDisplayName(s);
-  document.getElementById('popupBrand').textContent = s.brand ? displayName : '';
-  document.getElementById('popupTitle').textContent = s.brand ? (s.address || displayName) : displayName;
+  const stPricesForName = getPricesForStation(s);
+  const sourceBrand = formatSourceName(stPricesForName._source && stPricesForName._source !== 'network' && stPricesForName._source !== 'none' ? stPricesForName._source : null);
+  const effectiveBrand = s.brand || sourceBrand || null;
+  const displayName = effectiveBrand ? (normalizeBrandName(effectiveBrand) || effectiveBrand) : getDisplayName(s);
+  document.getElementById('popupBrand').textContent = effectiveBrand ? displayName : '';
+  document.getElementById('popupTitle').textContent = effectiveBrand ? (s.address || displayName) : displayName;
   document.getElementById('popupAddr').textContent = '📍 ' + (s.address || 'Адрес не указан');
 
   // Статус из @AZSKIRISHI
@@ -1406,7 +1413,14 @@ function openStation(id) {
 
   document.getElementById('popupPanel').classList.add('open');
 
-  map.panTo([s.lat, s.lon], { animate: true });
+  const targetZoom = Math.max(map.getZoom(), 16);
+  // Смещаем центр карты влево на полширины сайдбара, чтобы станция оказалась в центре видимой области
+  const SIDEBAR_W = 340;
+  const PANEL_W = 300;
+  const offsetPx = (SIDEBAR_W - PANEL_W) / 2;
+  const stPx = map.project([s.lat, s.lon], targetZoom);
+  const adjustedLatLng = map.unproject(stPx.subtract([offsetPx, 0]), targetZoom);
+  map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.6 });
   if (markersMap[id]) markersMap[id].openPopup();
 
   renderList();
