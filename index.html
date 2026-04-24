@@ -671,6 +671,7 @@ let radiusKm = 3;
 let geoWatchId = null;
 let userMarker = null;
 let userAccuracyCircle = null;
+let filterRadiusCircle = null;
 
 // ================================================================
 // BRAND INFO — телефон, сайт, режим работы по умолчанию
@@ -923,14 +924,29 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function updateFilterRadiusCircle() {
+  if (filterRadiusCircle) { map.removeLayer(filterRadiusCircle); filterRadiusCircle = null; }
+  if (nearbyEnabled && userLocation) {
+    filterRadiusCircle = L.circle([userLocation.lat, userLocation.lon], {
+      radius: radiusKm * 1000,
+      color: '#3b82f6', fillColor: '#3b82f6',
+      fillOpacity: 0.05, weight: 2,
+      dashArray: '8 5', interactive: false,
+    }).addTo(map);
+  }
+}
+
 function updateUserMarker(lat, lon, accuracy) {
   if (userMarker) { map.removeLayer(userMarker); userMarker = null; }
   if (userAccuracyCircle) { map.removeLayer(userAccuracyCircle); userAccuracyCircle = null; }
-  userAccuracyCircle = L.circle([lat, lon], {
-    radius: Math.max(accuracy, 30),
-    color: '#3b82f6', fillColor: '#3b82f6',
-    fillOpacity: 0.1, weight: 1.5, interactive: false,
-  }).addTo(map);
+  // точность: показываем только если < 500м, чтобы не путать с кругом фильтра
+  if (accuracy < 500) {
+    userAccuracyCircle = L.circle([lat, lon], {
+      radius: Math.max(accuracy, 30),
+      color: '#3b82f6', fillColor: '#3b82f6',
+      fillOpacity: 0.12, weight: 1, interactive: false,
+    }).addTo(map);
+  }
   const dotHtml = `<div style="
     width:16px;height:16px;border-radius:50%;
     background:#3b82f6;border:3px solid #fff;
@@ -968,6 +984,7 @@ function requestGeolocation(flyTo) {
     pos => {
       userLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
       updateUserMarker(userLocation.lat, userLocation.lon, userLocation.accuracy);
+      updateFilterRadiusCircle();
       if (btn) btn.className = 'locate-btn located';
       if (firstFix && flyTo) {
         map.flyTo([userLocation.lat, userLocation.lon], 14, { animate: true, duration: 1 });
@@ -1642,12 +1659,14 @@ document.getElementById('nearbyCheck').addEventListener('change', e => {
     if (!userLocation) {
       requestGeolocation(true);
     } else {
+      updateFilterRadiusCircle();
       updateGeoStatus();
     }
     if (document.getElementById('sortSelect').value === 'name') {
       document.getElementById('sortSelect').value = 'distance';
     }
   } else {
+    updateFilterRadiusCircle(); // удаляет круг когда выключено
     const statusEl = document.getElementById('geoStatusText');
     if (statusEl && userLocation) {
       statusEl.textContent = `📍 ± ${Math.round(userLocation.accuracy)} м`;
@@ -1662,6 +1681,7 @@ document.querySelectorAll('.radius-chip').forEach(chip => {
     document.querySelectorAll('.radius-chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     radiusKm = Number(chip.dataset.km);
+    updateFilterRadiusCircle();
     updateGeoStatus();
     if (nearbyEnabled) renderList();
   });
