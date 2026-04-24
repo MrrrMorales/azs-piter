@@ -1616,12 +1616,12 @@ function openStation(id) {
   document.getElementById('popupPanel').classList.add('open');
 
   const targetZoom = Math.max(map.getZoom(), 16);
-  // Смещаем центр карты влево на полширины сайдбара, чтобы станция оказалась в центре видимой области
-  const SIDEBAR_W = 340;
+  // Сайдбар — в flex-потоке (не поверх карты), поэтому карта начинается после него.
+  // Popup-panel накрывает правые 300px карты, поэтому видимый центр = -150px от центра контейнера карты.
+  // Чтобы станция попала в центр видимой области — сдвигаем точку flyTo на +150px вправо.
   const PANEL_W = 300;
-  const offsetPx = (SIDEBAR_W - PANEL_W) / 2;
   const stPx = map.project([s.lat, s.lon], targetZoom);
-  const adjustedLatLng = map.unproject(stPx.subtract([offsetPx, 0]), targetZoom);
+  const adjustedLatLng = map.unproject(stPx.add([PANEL_W / 2, 0]), targetZoom);
   map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.6 });
   if (markersMap[id]) markersMap[id].openPopup();
 
