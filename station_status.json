@@ -1,18 +1,5 @@
 {
-  "updated": "24.04.2026 13:07",
+  "updated": "24.04.2026 13:10",
   "note": "Переопределения статуса из Telegram @AZSKIRISHI. Ключи: OSM-id (число) или фрагмент адреса (строка в нижнем регистре).",
-  "overrides": {
-    "уральской": {
-      "status": "closed",
-      "reason": "нет электричества",
-      "since": "24.04.2026",
-      "source": "@AZSKIRISHI"
-    },
-    "азс": {
-      "status": "closed",
-      "reason": "наличные",
-      "since": "24.04.2026",
-      "source": "@AZSKIRISHI"
-    }
-  }
+  "overrides": {}
 }
