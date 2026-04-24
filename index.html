@@ -972,12 +972,28 @@ function buildMarkers() {
 // ================================================================
 // OPENING HOURS PARSER
 // ================================================================
+
+// Sums all open minutes across all time ranges in an OSM opening_hours string.
+// Cross-midnight ranges (end <= start) are handled correctly.
+function calcTotalOpenMinutes(oh) {
+  function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
+  let total = 0, m;
+  const re = /(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/g;
+  while ((m = re.exec(oh)) !== null) {
+    const s = toMin(m[1]), e = toMin(m[2]);
+    total += e > s ? e - s : (1440 - s + e);
+  }
+  return total;
+}
+
 // Returns true if open, false if closed, null if unknown.
 // Handles OSM opening_hours subset: 24/7, bare time ranges, Mo-Su prefixed rules.
 function isOpenNow(oh) {
   if (!oh || oh.trim() === '') return null;
   oh = oh.trim();
   if (oh === '24/7') return true;
+  // Near-24/7 (≥23 h/day): treat as always open — brief maintenance breaks aren't real closures
+  if (calcTotalOpenMinutes(oh) >= 23 * 60) return true;
 
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -1061,6 +1077,8 @@ function formatOpeningHours(oh) {
   if (!oh || oh.trim() === '') return null;
   oh = oh.trim();
   if (oh === '24/7') return 'Круглосуточно';
+  // Near-24/7 (≥23 h/day): show as "Круглосуточно" — maintenance breaks are not meaningful
+  if (calcTotalOpenMinutes(oh) >= 23 * 60) return 'Круглосуточно';
 
   const RU_DAYS = { mo:'Пн', tu:'Вт', we:'Ср', th:'Чт', fr:'Пт', sa:'Сб', su:'Вс' };
 
