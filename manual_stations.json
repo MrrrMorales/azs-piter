@@ -9,7 +9,9 @@
     "address": "проспект Энгельса, 163, ст. 4",
     "opening_hours": "",
     "phone": "+7 921 909-00-93",
-    "fuels": ["95"]
+    "fuels": [
+      "95"
+    ]
   },
   {
     "id": 927736586,
@@ -21,7 +23,9 @@
     "address": "Московское шоссе, 9а, Тосно",
     "opening_hours": "",
     "phone": "+7 921 909-00-93",
-    "fuels": ["95"]
+    "fuels": [
+      "95"
+    ]
   },
   {
     "id": 9000000001,
@@ -33,6 +37,64 @@
     "address": "Уральская улица, 8б",
     "opening_hours": "",
     "phone": "+7 921 909-00-93",
-    "fuels": ["95"]
+    "fuels": [
+      "95"
+    ]
+  },
+  {
+    "id": 9000000002,
+    "type": "node",
+    "lat": 59.90943,
+    "lon": 30.35651,
+    "name": "Benzopro",
+    "brand": "Benzopro",
+    "address": "Днепропетровская ул., 67Ж",
+    "opening_hours": "24/7",
+    "phone": "",
+    "fuels": [
+      "95"
+    ]
+  },
+  {
+    "id": 9000000003,
+    "type": "node",
+    "lat": 59.7518,
+    "lon": 30.03,
+    "name": "Benzopro",
+    "brand": "Benzopro",
+    "address": "промышленная зона Пигелево, 9, Ломоносовский р-н",
+    "opening_hours": "24/7",
+    "phone": "+7 911 727-89-50",
+    "fuels": [
+      "92",
+      "95"
+    ]
+  },
+  {
+    "id": 9000000004,
+    "type": "node",
+    "lat": 59.7817,
+    "lon": 29.9746,
+    "name": "Benzopro",
+    "brand": "Benzopro",
+    "address": "Чистопрудная ул., 33, д. Иннолово",
+    "opening_hours": "24/7",
+    "phone": "+7 911 727-89-50",
+    "fuels": [
+      "92",
+      "95"
+    ]
+  },
+  {
+    "id": 9000000005,
+    "type": "node",
+    "lat": 59.7035,
+    "lon": 30.7861,
+    "name": "BenzoPro",
+    "brand": "Benzopro",
+    "address": "Никольское, Тосненский р-н",
+    "opening_hours": "24/7",
+    "phone": "+7 911 727-89-50",
+    "fuels": []
   }
 ]
