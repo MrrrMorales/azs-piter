@@ -34,6 +34,8 @@ BRANDS = [
         'esso', 'Esso'),
     (['nord point', 'норд поинт'],
         'nord point', 'Nord Point'),
+    (['nord-line', 'nordline', 'nord line', 'норд-лайн', 'норд лайн'],
+        'nord-line', 'Nord-Line'),
     (['линос', 'linos'],
         'линос', 'Линос'),
     (['aris'],
