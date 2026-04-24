@@ -128,6 +128,22 @@ for el in raw['elements']:
         station['fuels'] = fuels
     stations.append(station)
 
+# Мержим ручные станции из manual_stations.json
+try:
+    with open('manual_stations.json', encoding='utf-8') as mf:
+        manual = json.load(mf)
+    by_id = {s['id']: i for i, s in enumerate(stations)}
+    merged = 0
+    for ms in manual:
+        if ms['id'] in by_id:
+            stations[by_id[ms['id']]] = {**stations[by_id[ms['id']]], **ms}
+        else:
+            stations.append(ms)
+        merged += 1
+    print(f"+ применено {merged} ручных записей из manual_stations.json")
+except FileNotFoundError:
+    pass
+
 with open('stations.json', 'w', encoding='utf-8') as f:
     json.dump(stations, f, ensure_ascii=False, separators=(',', ':'))
 

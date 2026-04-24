@@ -1,0 +1,38 @@
+[
+  {
+    "id": 4350428000,
+    "type": "node",
+    "lat": 60.0683316,
+    "lon": 30.3487252,
+    "name": "Oil-store",
+    "brand": "Oil-store",
+    "address": "проспект Энгельса, 163, ст. 4",
+    "opening_hours": "",
+    "phone": "+7 921 909-00-93",
+    "fuels": ["95"]
+  },
+  {
+    "id": 927736586,
+    "type": "node",
+    "lat": 59.5517132,
+    "lon": 30.8836301,
+    "name": "Oil-store",
+    "brand": "Oil-store",
+    "address": "Московское шоссе, 9а, Тосно",
+    "opening_hours": "",
+    "phone": "+7 921 909-00-93",
+    "fuels": ["95"]
+  },
+  {
+    "id": 9000000001,
+    "type": "node",
+    "lat": 59.9524,
+    "lon": 30.2636,
+    "name": "Oil-store",
+    "brand": "Oil-store",
+    "address": "Уральская улица, 8б",
+    "opening_hours": "",
+    "phone": "+7 921 909-00-93",
+    "fuels": ["95"]
+  }
+]

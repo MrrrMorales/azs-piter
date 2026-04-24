@@ -258,6 +258,17 @@
     .pmini[data-f="dt"] { color: var(--fuel-dt); }
 
     .no-price { color: var(--muted); font-style: italic; }
+    .badge-closed {
+      font-size: 9px; font-weight: 700;
+      background: #ef444422; color: #ef4444;
+      border: 1px solid #ef444444;
+      padding: 1px 5px; border-radius: 3px;
+      vertical-align: middle;
+    }
+    .station-closed-bar {
+      font-size: 10px; color: #ef4444;
+      margin-top: 3px; display: flex; align-items: center; gap: 4px;
+    }
     .badge-cheapest {
       font-size: 9px; font-weight: 700;
       background: var(--green); color: #000;
@@ -382,6 +393,12 @@
     .popup-price-card[data-f="dt"] .fuel-val { color: var(--fuel-dt); }
 
     .popup-price-card .fuel-unit { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .popup-price-card .fuel-tiers {
+      margin-top: 6px; padding-top: 5px;
+      border-top: 1px solid var(--border);
+      font-size: 9px; color: var(--muted); line-height: 1.6;
+    }
+    .popup-price-card .fuel-tiers span { display: block; }
     .no-data-price { color: var(--muted); font-size: 13px; font-style: italic; }
 
     .info-row {
@@ -503,6 +520,7 @@
       <div class="popup-addr" id="popupAddr">—</div>
     </div>
     <div class="popup-body">
+      <div id="popupClosedBanner" style="display:none;background:#ef444418;border:1px solid #ef444444;border-radius:6px;padding:8px 10px;margin-bottom:12px;font-size:11px;font-weight:600;color:#ef4444;"></div>
       <div class="popup-section-title">Цены на топливо</div>
       <div class="popup-prices" id="popupPrices"></div>
 
@@ -559,6 +577,7 @@ let brandPrices = {};
 let brandAliases = {};
 let pricesUpdated = '';
 let stationPrices = {};   // per-station prices: {osmId -> {92,95,100,dt,source,updated}}
+let stationStatusOverrides = {}; // статусы из @AZSKIRISHI: {osmId|адрес -> {status,reason,since}}
 const priceCache = new Map(); // мемоизация getPricesForStation
 
 // ================================================================
@@ -593,6 +612,7 @@ const BRAND_INFO = {
   'apn':              { phone: '',                 hours: 'Круглосуточно', url: '' },
   'нева-ойл':         { phone: '',                 hours: 'Круглосуточно', url: '' },
   'топсис':           { phone: '',                 hours: 'Круглосуточно', url: '' },
+  'oil store':        { phone: '+7 921 909-00-93', hours: '',               url: '' },
 };
 
 function getBrandInfo(station) {
@@ -631,6 +651,30 @@ async function loadPrices() {
   } catch (e) {
     console.warn('[station_prices.json] ошибка:', e.message);
   }
+
+  // Загружаем статусы станций из @AZSKIRISHI
+  try {
+    const r3 = await fetch('station_status.json?' + Date.now());
+    if (r3.ok) {
+      const data3 = await r3.json();
+      stationStatusOverrides = data3.overrides || {};
+    }
+  } catch (e) {
+    console.warn('[station_status.json] ошибка:', e.message);
+  }
+}
+
+// Получить статус станции из @AZSKIRISHI (null = нет данных)
+function getStationStatus(station) {
+  // 1. Точное совпадение по OSM id
+  const byId = stationStatusOverrides[String(station.id)];
+  if (byId) return byId;
+  // 2. Совпадение по фрагменту адреса или имени
+  const haystack = ((station.address || '') + ' ' + (station.name || '')).toLowerCase();
+  for (const [key, override] of Object.entries(stationStatusOverrides)) {
+    if (!/^\d+$/.test(key) && key.length > 2 && haystack.includes(key)) return override;
+  }
+  return null;
 }
 
 // Получить цены для конкретной заправки (3 уровня приоритета)
@@ -735,6 +779,7 @@ const BRAND_NAMES = [
   [['apn'],                                        'APN'],
   [['нева-ойл','неваойл'],                         'Нева-ойл'],
   [['топсис'],                                     'ТопСис'],
+  [['oil-store','oil store','ойл стор'],            'Oil Store'],
 ];
 
 function normalizeBrandName(raw) {
@@ -778,7 +823,25 @@ async function loadStations() {
     setLoadingStatus('Обрабатываем данные…');
     const data = await r.json();
 
-    allStations = data.map(s => ({
+    let rawData = [...data];
+
+    // Мержим ручные станции из manual_stations.json
+    try {
+      const rm = await fetch('manual_stations.json?v=' + Date.now());
+      if (rm.ok) {
+        const manual = await rm.json();
+        const byId = new Map(rawData.map((s, i) => [s.id, i]));
+        for (const ms of manual) {
+          if (byId.has(ms.id)) {
+            rawData[byId.get(ms.id)] = { ...rawData[byId.get(ms.id)], ...ms };
+          } else {
+            rawData.push(ms);
+          }
+        }
+      }
+    } catch (_) {}
+
+    allStations = rawData.map(s => ({
       ...s,
       prices: { '92': null, '95': null, '100': null, 'dt': null }
     })).filter(s => s.lat && s.lon);
@@ -854,8 +917,11 @@ function buildMarkers() {
   allStations.forEach(s => {
     shownStationCount++;
 
+    const stStatus = getStationStatus(s);
+    const isClosed = stStatus && stStatus.status === 'closed';
+
     const marker = L.marker([s.lat, s.lon], {
-      icon: createMarkerIcon(markerColor(s, activeFuel, avg), false)
+      icon: createMarkerIcon(isClosed ? '#6b7280' : markerColor(s, activeFuel, avg), false)
     });
 
     const stPrices = getPricesForStation(s);
@@ -865,9 +931,14 @@ function buildMarkers() {
       return p ? `<span class="map-popup-chip" style="color:var(--fuel-${f})">${label}: ${p} ₽</span>` : '';
     }).filter(Boolean).join('');
 
+    const closedBar = isClosed
+      ? `<div style="color:#ef4444;font-size:10px;margin-bottom:5px">⛔ Закрыта${stStatus.reason ? ' · ' + stStatus.reason : ''}</div>`
+      : '';
+
     marker.bindPopup(`
       <div class="map-popup-name">${getDisplayName(s)}</div>
       <div class="map-popup-addr">${s.address || ''}</div>
+      ${closedBar}
       <div class="map-popup-prices">${priceChips}</div>
       <button class="map-popup-btn" onclick="openStation(${s.id})">Подробнее →</button>
     `);
@@ -1105,6 +1176,8 @@ function renderList() {
     const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
     const displayName = getDisplayName(s);
     const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
+    const stStatus = getStationStatus(s);
+    const isClosed = stStatus && stStatus.status === 'closed';
 
     const card = document.createElement('div');
     card.className = 'station-card' + (isActive ? ' active' : '');
@@ -1115,10 +1188,12 @@ function renderList() {
         <div style="flex:1;padding-right:8px">
           <div class="station-name">
             ${displayName}
+            ${isClosed ? '<span class="badge-closed">⛔ ЗАКРЫТА</span>' : ''}
             ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
             ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
           </div>
           <div class="station-addr">📍 ${s.address || 'Адрес не указан'}</div>
+          ${isClosed && stStatus.reason ? `<div class="station-closed-bar">⚡ ${stStatus.reason}</div>` : ''}
         </div>
         <div>
           <div class="highlight-price">${price !== null && price !== undefined ? price + ' ₽' : '—'}</div>
@@ -1149,7 +1224,10 @@ function openStation(id) {
   const avg = calcAvgPrice(activeFuel);
   Object.entries(markersMap).forEach(([mid, marker]) => {
     const st = stationById[Number(mid)];
-    if (st) marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), st.id === id));
+    if (!st) return;
+    const stClosed = getStationStatus(st);
+    const color = (stClosed && stClosed.status === 'closed') ? '#6b7280' : markerColor(st, activeFuel, avg);
+    marker.setIcon(createMarkerIcon(color, st.id === id));
   });
 
   // Fill popup
@@ -1157,6 +1235,21 @@ function openStation(id) {
   document.getElementById('popupBrand').textContent = s.brand ? displayName : '';
   document.getElementById('popupTitle').textContent = s.brand ? (s.address || displayName) : displayName;
   document.getElementById('popupAddr').textContent = '📍 ' + (s.address || 'Адрес не указан');
+
+  // Статус из @AZSKIRISHI
+  const stStatus = getStationStatus(s);
+  const closedBannerEl = document.getElementById('popupClosedBanner');
+  if (closedBannerEl) {
+    if (stStatus && stStatus.status === 'closed') {
+      closedBannerEl.style.display = 'block';
+      closedBannerEl.innerHTML = `⛔ Станция закрыта${stStatus.reason ? ' · ' + stStatus.reason : ''}
+        <span style="font-size:9px;color:var(--muted);display:block;margin-top:2px">
+          Источник: @AZSKIRISHI${stStatus.since ? ' · ' + stStatus.since : ''}
+        </span>`;
+    } else {
+      closedBannerEl.style.display = 'none';
+    }
+  }
 
   const stPrices = getPricesForStation(s);
   const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
@@ -1181,11 +1274,19 @@ function openStation(id) {
   // Строим карточки цен
   let priceCards = visibleFuelData.map(f => {
     const p = stPrices[f.key];
+    const tiers = stPrices[f.key + '_tiers'];
+    const tiersHtml = tiers ? `
+      <div class="fuel-tiers">
+        ${tiers.card  !== undefined ? `<span>💳 карта/СБП: ${tiers.card} ₽</span>` : ''}
+        ${tiers.cash  !== undefined ? `<span>💵 наличные: ${tiers.cash} ₽</span>` : ''}
+        ${tiers.bulk  !== undefined ? `<span>💵 нал от 5000₽: ${tiers.bulk} ₽</span>` : ''}
+      </div>` : '';
     return `
       <div class="popup-price-card" data-f="${f.key}">
         <div class="fuel-name">${f.label}</div>
         <div class="fuel-val">${p !== null && p !== undefined ? p : '—'}</div>
         <div class="fuel-unit">${p !== null && p !== undefined ? 'руб/л' : 'нет данных'}</div>
+        ${tiersHtml}
       </div>
     `;
   }).join('');
