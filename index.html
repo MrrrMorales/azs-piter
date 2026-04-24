@@ -438,6 +438,63 @@
       display: none;
     }
 
+    /* NEARBY / GEOLOCATION */
+    .nearby-section {
+      padding: 8px 14px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .nearby-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 8px;
+    }
+    .nearby-toggle input { accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer; }
+    .nearby-toggle:has(input:checked) span { color: #3b82f6; }
+    .radius-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .radius-chip {
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      transition: all 0.15s;
+      font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.3px;
+    }
+    .radius-chip:hover { border-color: #3b82f6; color: #3b82f6; }
+    .radius-chip.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .geo-status { font-size: 11px; color: var(--muted); margin-top: 6px; min-height: 16px; }
+    .geo-status.ok { color: #22c55e; }
+    .geo-status.err { color: #ef4444; }
+
+    /* LOCATE BUTTON */
+    .leaflet-control-locate { margin-bottom: 8px; }
+    .locate-btn {
+      width: 36px; height: 36px;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 20px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      line-height: 1; padding: 0;
+    }
+    .locate-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+    .locate-btn.locating { border-color: #3b82f6; color: #3b82f6; animation: geo-pulse 1s ease-in-out infinite; }
+    .locate-btn.located { border-color: #3b82f6; color: #3b82f6; background: #3b82f622; }
+    @keyframes geo-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
     /* Leaflet popup */
     .leaflet-popup-content-wrapper {
       background: var(--surface2); color: var(--text);
@@ -487,12 +544,29 @@
         <span>Только открытые сейчас</span>
       </label>
     </div>
+    <div class="nearby-section">
+      <label class="nearby-toggle">
+        <input type="checkbox" id="nearbyCheck">
+        <span>Рядом со мной</span>
+      </label>
+      <div class="radius-chips" id="radiusChips">
+        <div class="radius-chip" data-km="1">1 км</div>
+        <div class="radius-chip" data-km="2">2 км</div>
+        <div class="radius-chip active" data-km="3">3 км</div>
+        <div class="radius-chip" data-km="5">5 км</div>
+        <div class="radius-chip" data-km="7">7 км</div>
+        <div class="radius-chip" data-km="10">10 км</div>
+        <div class="radius-chip" data-km="15">15 км</div>
+      </div>
+      <div class="geo-status" id="geoStatusText"></div>
+    </div>
     <div class="sort-bar">
       <label>Сортировать:</label>
       <select id="sortSelect">
         <option value="name">По названию</option>
         <option value="price-asc">Цена ↑ дешевле</option>
         <option value="price-desc">Цена ↓ дороже</option>
+        <option value="distance">По расстоянию</option>
       </select>
     </div>
     <div class="station-list" id="stationList">
@@ -546,6 +620,18 @@ const map = L.map('map', {
 });
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+const LocateControl = L.Control.extend({
+  options: { position: 'bottomright' },
+  onAdd() {
+    const div = L.DomUtil.create('div', 'leaflet-control-locate');
+    div.innerHTML = '<button class="locate-btn" id="locateBtn" title="Моё местоположение">◎</button>';
+    L.DomEvent.disableClickPropagation(div);
+    div.addEventListener('click', () => requestGeolocation(true));
+    return div;
+  }
+});
+new LocateControl().addTo(map);
+
 const cartoTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CartoDB',
   maxZoom: 19
@@ -579,6 +665,12 @@ let pricesUpdated = '';
 let stationPrices = {};   // per-station prices: {osmId -> {92,95,100,dt,source,updated}}
 let stationStatusOverrides = {}; // статусы из @AZSKIRISHI: {osmId|адрес -> {status,reason,since}}
 const priceCache = new Map(); // мемоизация getPricesForStation
+let userLocation = null;      // { lat, lon, accuracy }
+let nearbyEnabled = false;
+let radiusKm = 3;
+let geoWatchId = null;
+let userMarker = null;
+let userAccuracyCircle = null;
 
 // ================================================================
 // BRAND INFO — телефон, сайт, режим работы по умолчанию
@@ -817,6 +909,85 @@ function parsePrice(val) {
   if (!val) return null;
   const n = parseFloat(String(val).replace(',', '.'));
   return isNaN(n) ? null : n;
+}
+
+// ================================================================
+// GEOLOCATION
+// ================================================================
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function updateUserMarker(lat, lon, accuracy) {
+  if (userMarker) { map.removeLayer(userMarker); userMarker = null; }
+  if (userAccuracyCircle) { map.removeLayer(userAccuracyCircle); userAccuracyCircle = null; }
+  userAccuracyCircle = L.circle([lat, lon], {
+    radius: Math.max(accuracy, 30),
+    color: '#3b82f6', fillColor: '#3b82f6',
+    fillOpacity: 0.1, weight: 1.5, interactive: false,
+  }).addTo(map);
+  const dotHtml = `<div style="
+    width:16px;height:16px;border-radius:50%;
+    background:#3b82f6;border:3px solid #fff;
+    box-shadow:0 0 0 2px #3b82f6,0 2px 8px rgba(0,0,0,0.5);
+  "></div>`;
+  userMarker = L.marker([lat, lon], {
+    icon: L.divIcon({ html: dotHtml, className: '', iconSize: [16, 16], iconAnchor: [8, 8] }),
+    zIndexOffset: 2000, interactive: false,
+  }).addTo(map);
+}
+
+function updateGeoStatus() {
+  const statusEl = document.getElementById('geoStatusText');
+  if (!statusEl || !userLocation) return;
+  const acc = Math.round(userLocation.accuracy);
+  const inRadius = nearbyEnabled
+    ? allStations.filter(s => haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) <= radiusKm).length
+    : null;
+  statusEl.textContent = `📍 ± ${acc} м` + (inRadius !== null ? ` · ${inRadius} АЗС в радиусе` : '');
+  statusEl.className = 'geo-status ok';
+}
+
+function requestGeolocation(flyTo) {
+  const btn = document.getElementById('locateBtn');
+  const statusEl = document.getElementById('geoStatusText');
+  if (!navigator.geolocation) {
+    if (statusEl) { statusEl.textContent = 'Геолокация не поддерживается'; statusEl.className = 'geo-status err'; }
+    return;
+  }
+  if (btn) btn.className = 'locate-btn locating';
+  if (statusEl) { statusEl.textContent = 'Определяем местоположение…'; statusEl.className = 'geo-status'; }
+  if (geoWatchId !== null) { navigator.geolocation.clearWatch(geoWatchId); geoWatchId = null; }
+  let firstFix = true;
+  geoWatchId = navigator.geolocation.watchPosition(
+    pos => {
+      userLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      updateUserMarker(userLocation.lat, userLocation.lon, userLocation.accuracy);
+      if (btn) btn.className = 'locate-btn located';
+      if (firstFix && flyTo) {
+        map.flyTo([userLocation.lat, userLocation.lon], 14, { animate: true, duration: 1 });
+        firstFix = false;
+      }
+      updateGeoStatus();
+      if (nearbyEnabled || document.getElementById('sortSelect').value === 'distance') renderList();
+    },
+    err => {
+      if (btn) btn.className = 'locate-btn';
+      const msgs = { 1: 'Доступ к геолокации запрещён', 2: 'Геолокация недоступна', 3: 'Время ожидания истекло' };
+      if (statusEl) { statusEl.textContent = msgs[err.code] || 'Ошибка геолокации'; statusEl.className = 'geo-status err'; }
+      if (nearbyEnabled) {
+        document.getElementById('nearbyCheck').checked = false;
+        nearbyEnabled = false;
+        renderList();
+      }
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+  );
 }
 
 // ================================================================
@@ -1150,6 +1321,11 @@ function getFilteredSorted() {
     });
   }
 
+  // Nearby filter
+  if (nearbyEnabled && userLocation) {
+    list = list.filter(s => haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) <= radiusKm);
+  }
+
   // Search
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -1180,6 +1356,11 @@ function getFilteredSorted() {
       if (pb === null) return -1;
       return pb - pa;
     });
+  } else if (sort === 'distance' && userLocation) {
+    list.sort((a, b) =>
+      haversine(userLocation.lat, userLocation.lon, a.lat, a.lon) -
+      haversine(userLocation.lat, userLocation.lon, b.lat, b.lon)
+    );
   } else {
     list.sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
   }
@@ -1210,6 +1391,10 @@ function renderList() {
     return p !== null && p !== undefined;
   }).forEach(s => {
     const isActive = s.id === selectedId;
+    const distKm = userLocation ? haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) : null;
+    const distLabel = distKm !== null
+      ? ` · <span style="color:#60a5fa;font-weight:600">${distKm < 1 ? Math.round(distKm * 1000) + ' м' : distKm.toFixed(1) + ' км'}</span>`
+      : '';
     const stPrices = getPricesForStation(s);
     const price = stPrices[activeFuel];
     const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
@@ -1235,7 +1420,7 @@ function renderList() {
             ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
             ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
           </div>
-          <div class="station-addr">📍 ${s.address || 'Адрес не указан'}</div>
+          <div class="station-addr">📍 ${s.address || 'Адрес не указан'}${distLabel}</div>
           ${isClosed && stStatus.reason ? `<div class="station-closed-bar">⚡ ${stStatus.reason}</div>` : ''}
         </div>
         <div>
@@ -1449,6 +1634,37 @@ document.getElementById('openNowCheck').addEventListener('change', e => {
 document.getElementById('searchInput').addEventListener('input', e => {
   searchQuery = e.target.value.trim();
   renderList();
+});
+
+document.getElementById('nearbyCheck').addEventListener('change', e => {
+  nearbyEnabled = e.target.checked;
+  if (nearbyEnabled) {
+    if (!userLocation) {
+      requestGeolocation(true);
+    } else {
+      updateGeoStatus();
+    }
+    if (document.getElementById('sortSelect').value === 'name') {
+      document.getElementById('sortSelect').value = 'distance';
+    }
+  } else {
+    const statusEl = document.getElementById('geoStatusText');
+    if (statusEl && userLocation) {
+      statusEl.textContent = `📍 ± ${Math.round(userLocation.accuracy)} м`;
+      statusEl.className = 'geo-status ok';
+    }
+  }
+  renderList();
+});
+
+document.querySelectorAll('.radius-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.radius-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    radiusKm = Number(chip.dataset.km);
+    updateGeoStatus();
+    if (nearbyEnabled) renderList();
+  });
 });
 
 document.getElementById('popupClose').addEventListener('click', closePanel);
