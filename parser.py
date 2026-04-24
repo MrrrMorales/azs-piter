@@ -1,6 +1,7 @@
 """
 parser.py — Парсер цен на топливо для АЗС Санкт-Петербурга и Ленобласти
 Источники (в порядке приоритета):
+  0. kirishiavtoservis.ru — официальный сайт (приоритет для сургутнефтегаз)
   1. gsm.ru         — надёжный агрегатор, актуальные данные
   2. benzoportal.ru — резервный агрегатор
   3. fuelprice.ru   — дополнительный источник
@@ -302,6 +303,36 @@ def parse_fuelprice():
 
 
 # ─────────────────────────────────────────────────────────────────
+# ПАРСЕР 0 — kirishiavtoservis.ru (официальный сайт, приоритет для сургутнефтегаз)
+# ─────────────────────────────────────────────────────────────────
+def parse_kirishiavtoservis():
+    print('[kirishiavtoservis.ru] Запрос...')
+    r = safe_get('https://kirishiavtoservis.ru/stations/')
+    if not r:
+        return {}
+
+    soup = BeautifulSoup(r.text, 'lxml')
+    for tag in soup(['script', 'style', 'svg']):
+        tag.decompose()
+
+    lines = [l.strip() for l in soup.get_text(separator='\n').split('\n') if l.strip()]
+
+    FUEL_NAMES = {'аи-92': '92', 'аи-95': '95', 'аи-98': '100', 'дт': 'dt'}
+    prices = {}
+    for i, line in enumerate(lines):
+        key = line.lower()
+        if key in FUEL_NAMES and FUEL_NAMES[key] not in prices:
+            if i + 1 < len(lines):
+                val = parse_price(lines[i + 1])
+                if val:
+                    prices[FUEL_NAMES[key]] = val
+
+    if prices:
+        print(f'  -> сургутнефтегаз: {prices}')
+        return {'сургутнефтегаз': prices}
+    return {}
+
+
 # ПАРСЕР 4 — benzin-price.ru (резерв)
 # ─────────────────────────────────────────────────────────────────
 def parse_benzinprice():
@@ -362,7 +393,7 @@ def run():
     results = {}
 
     # Пробуем все источники последовательно, объединяем результаты
-    for parser_fn in [parse_gsm, parse_benzoportal, parse_fuelprice, parse_benzinprice]:
+    for parser_fn in [parse_kirishiavtoservis, parse_gsm, parse_benzoportal, parse_fuelprice, parse_benzinprice]:
         try:
             data = parser_fn()
             if data:
