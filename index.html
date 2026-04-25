@@ -180,7 +180,7 @@
       flex: 1;
       overflow-y: auto;
       padding: 6px;
-      touch-action: pan-y;
+      touch-action: none;
       overscroll-behavior: contain;
     }
     .station-list::-webkit-scrollbar { width: 4px; }
@@ -654,7 +654,7 @@
 
       /* Safe area for iOS home indicator */
       .station-list { padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px); }
-      .popup-body { padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px); touch-action: pan-y; overscroll-behavior: contain; }
+      .popup-body { padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px); touch-action: none; overscroll-behavior: contain; }
     }
 
     /* Leaflet popup */
@@ -1979,17 +1979,15 @@ document.getElementById('mobileBackdrop').addEventListener('click', closeMobileS
 map.on('click', closePanel);
 
 // Drag с multi-snap для нижних шторок на мобильном
-function makeDraggable(handleEl, panelEl, closeCallback) {
+function makeDraggable(handleEl, panelEl, closeCallback, scrollEl) {
   let startY = 0, currentOffset = 0, lastDY = 0;
   let prevY = 0, prevTime = 0, velocity = 0;
 
-  // Читаем текущий translateY из inline-стиля
   function getPanelOffset() {
     const m = (panelEl.style.transform || '').match(/translateY\(([0-9.-]+)px\)/);
     return m ? parseFloat(m[1]) : 0;
   }
 
-  // Точки притяжения: [0 = открыта, peek = только верхняя секция, panelH = закрыта]
   function getSnapPoints() {
     const panelH = panelEl.offsetHeight;
     const handleH = handleEl.offsetHeight || 28;
@@ -2001,7 +1999,6 @@ function makeDraggable(handleEl, panelEl, closeCallback) {
     return [0, panelH];
   }
 
-  // Ближайший снап с учётом скорости свайпа
   function getNearestSnap(offset, vel) {
     const snaps = getSnapPoints();
     if (Math.abs(vel) > 0.3) {
@@ -2022,12 +2019,13 @@ function makeDraggable(handleEl, panelEl, closeCallback) {
         panelEl.style.transform = '';
         closeCallback();
       } else if (target === 0) {
-        panelEl.style.transform = ''; // отдаём управление CSS-классу
+        panelEl.style.transform = '';
       }
     }, 300);
   }
 
-  function onMove(e) {
+  // --- Handle drag ---
+  function onHandleMove(e) {
     const y = e.touches[0].clientY;
     const now = Date.now();
     const dt = now - prevTime;
@@ -2037,8 +2035,8 @@ function makeDraggable(handleEl, panelEl, closeCallback) {
     panelEl.style.transform = `translateY(${lastDY}px)`;
   }
 
-  function onEnd() {
-    document.removeEventListener('touchmove', onMove);
+  function onHandleEnd() {
+    document.removeEventListener('touchmove', onHandleMove);
     snapTo(getNearestSnap(lastDY, velocity));
   }
 
@@ -2048,20 +2046,100 @@ function makeDraggable(handleEl, panelEl, closeCallback) {
     prevY = startY; prevTime = Date.now();
     velocity = 0; lastDY = currentOffset;
     panelEl.style.transition = 'none';
-    document.addEventListener('touchmove', onMove, { passive: true });
-    document.addEventListener('touchend', onEnd, { once: true });
+    document.addEventListener('touchmove', onHandleMove, { passive: true });
+    document.addEventListener('touchend', onHandleEnd, { once: true });
   }, { passive: true });
+
+  // --- Scroll-area → panel drag when at top ---
+  if (scrollEl) {
+    let scrollStartY = 0, scrollPrevY = 0, scrollPrevTime = 0;
+    let scrollVel = 0, scrollLastDelta = 0;
+    let mode = null; // null | 'panel' | 'scroll'
+    let momentumRaf = null;
+
+    function stopMomentum() {
+      if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = null; }
+    }
+
+    function startMomentum(vel) {
+      // vel > 0: finger was moving down → content was going up → continue scrolling up
+      // scrollTop -= vel * px each frame, decay with friction
+      let v = -vel * 16; // px per frame (vel in px/ms, 16ms ≈ 1 frame)
+      function step() {
+        if (Math.abs(v) < 0.5) return;
+        scrollEl.scrollTop += v;
+        v *= 0.94;
+        momentumRaf = requestAnimationFrame(step);
+      }
+      momentumRaf = requestAnimationFrame(step);
+    }
+
+    scrollEl.addEventListener('touchstart', (e) => {
+      stopMomentum();
+      scrollStartY = e.touches[0].clientY;
+      scrollPrevY = scrollStartY;
+      scrollPrevTime = Date.now();
+      scrollVel = 0;
+      scrollLastDelta = 0;
+      mode = null;
+    }, { passive: true });
+
+    scrollEl.addEventListener('touchmove', (e) => {
+      const y = e.touches[0].clientY;
+      const now = Date.now();
+      const dt = now - scrollPrevTime;
+      if (dt > 0) scrollVel = (y - scrollPrevY) / dt;
+      const deltaFromPrev = y - scrollPrevY;
+      scrollLastDelta = y - scrollStartY;
+      scrollPrevY = y;
+      scrollPrevTime = now;
+
+      if (mode === null) {
+        if (Math.abs(scrollLastDelta) < 4) return;
+        if (scrollLastDelta > 0 && scrollEl.scrollTop <= 0) {
+          mode = 'panel';
+          currentOffset = getPanelOffset();
+          startY = scrollStartY;
+          velocity = 0; lastDY = currentOffset;
+          panelEl.style.transition = 'none';
+        } else {
+          mode = 'scroll';
+        }
+      }
+
+      if (mode === 'panel') {
+        e.preventDefault();
+        velocity = scrollVel;
+        lastDY = Math.max(0, currentOffset + scrollLastDelta);
+        panelEl.style.transform = `translateY(${lastDY}px)`;
+      } else {
+        // Manual scroll (touch-action: none requires this)
+        scrollEl.scrollTop -= deltaFromPrev;
+      }
+    }, { passive: false });
+
+    scrollEl.addEventListener('touchend', () => {
+      if (mode === 'panel') {
+        snapTo(getNearestSnap(lastDY, scrollVel));
+      } else if (mode === 'scroll') {
+        startMomentum(scrollVel);
+      }
+      mode = null;
+    }, { passive: true });
+  }
 }
 
 makeDraggable(
   document.getElementById('sidebarHandle'),
   document.querySelector('.sidebar'),
-  closeMobileSidebar
+  closeMobileSidebar,
+  document.getElementById('stationList')
 );
 makeDraggable(
   document.getElementById('popupHandle'),
   document.getElementById('popupPanel'),
-  closePanel
+  closePanel,
+  document.querySelector('.popup-body')
 );
 
 function closePanel() {
