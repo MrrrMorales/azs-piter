@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="lib/leaflet.css" />
   <link rel="stylesheet" href="lib/MarkerCluster.css" />
   <link rel="stylesheet" href="lib/MarkerCluster.Default.css" />
+  <meta name="theme-color" content="#0d0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
 
   <style>
     :root {
@@ -292,7 +296,7 @@
 
     /* MAP */
     #map { flex: 1; }
-    .map-dark-filter { filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7); }
+    /* dark tiles via CartoDB — no CSS filter needed */
 
     /* LOADING OVERLAY */
     .loading-overlay {
@@ -800,10 +804,11 @@ const LocateControl = L.Control.extend({
 });
 new LocateControl().addTo(map);
 
-const osmTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+const osmTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd',
   maxZoom: 19,
-  className: 'map-dark-filter'
+  detectRetina: true
 });
 osmTiles.addTo(map);
 
@@ -1295,12 +1300,17 @@ function createMarkerIcon(color, selected) {
   return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
 }
 
+let _markerColorRaf = null;
 function updateMarkerColors() {
-  const avg = calcAvgPrice(activeFuel);
-  Object.entries(markersMap).forEach(([id, marker]) => {
-    const st = stationById[Number(id)];
-    if (!st) return;
-    marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), st.id === selectedId));
+  if (_markerColorRaf) cancelAnimationFrame(_markerColorRaf);
+  _markerColorRaf = requestAnimationFrame(() => {
+    _markerColorRaf = null;
+    const avg = calcAvgPrice(activeFuel);
+    Object.entries(markersMap).forEach(([id, marker]) => {
+      const st = stationById[Number(id)];
+      if (!st) return;
+      marker.setIcon(createMarkerIcon(markerColor(st, activeFuel, avg), st.id === selectedId));
+    });
   });
 }
 
@@ -1596,83 +1606,135 @@ function getFilteredSorted() {
   return list;
 }
 
+// Virtual scroll state
+let _vsList = [];
+let _vsCtx = {};
+let _vsRendered = 0;
+let _vsObserver = null;
+const VS_BATCH = 30;
+
 function renderList() {
-  const list = getFilteredSorted();
-  const container = document.getElementById('stationList');
+  if (_vsObserver) { _vsObserver.disconnect(); _vsObserver = null; }
+
   const fuelLabels = { '92':'АИ-92', '95':'АИ-95', '100':'АИ-100', 'dt':'ДТ' };
   const otherFuels = ['92','95','100','dt'].filter(f => f !== activeFuel);
 
-  // Find cheapest price for badge (only if exactly one station has it)
-  const prices = list.map(s => getPricesForStation(s)[activeFuel]).filter(p => p !== null && p !== undefined);
-  const cheapest = prices.length ? Math.min(...prices) : null;
-  const cheapestCount = cheapest !== null ? prices.filter(p => p === cheapest).length : 0;
+  _vsList = getFilteredSorted().filter(s => {
+    const p = getPricesForStation(s)[activeFuel];
+    return p !== null && p !== undefined;
+  });
 
+  const allPrices = _vsList.map(s => getPricesForStation(s)[activeFuel]);
+  const cheapest = allPrices.length ? Math.min(...allPrices) : null;
+  const cheapestCount = cheapest !== null ? allPrices.filter(p => p === cheapest).length : 0;
+  _vsCtx = { cheapest, cheapestCount, fuelLabels, otherFuels };
+  _vsRendered = 0;
+
+  const container = document.getElementById('stationList');
   container.innerHTML = '';
 
-  if (list.length === 0) {
+  if (_vsList.length === 0) {
     container.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">Ничего не найдено</div>`;
     return;
   }
 
-  list.filter(s => {
-    const p = getPricesForStation(s)[activeFuel];
-    return p !== null && p !== undefined;
-  }).forEach(s => {
-    const isActive = s.id === selectedId;
-    const distKm = userLocation ? haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) : null;
-    const distLabel = distKm !== null
-      ? ` · <span style="color:#60a5fa;font-weight:600">${distKm < 1 ? Math.round(distKm * 1000) + ' м' : distKm.toFixed(1) + ' км'}</span>`
-      : '';
-    const stPrices = getPricesForStation(s);
-    const price = stPrices[activeFuel];
-    const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
-    const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
-    const cardSourceBrand = formatSourceName(hasLivePrices ? stPrices._source : null);
-    const cardEffectiveBrand = s.brand || cardSourceBrand || null;
-    const displayName = cardEffectiveBrand
-      ? (normalizeBrandName(cardEffectiveBrand) || cardEffectiveBrand)
-      : getDisplayName(s);
-    const stStatus = getStationStatus(s);
-    const isClosed = stStatus && stStatus.status === 'closed';
+  _renderVSBatch(container);
+}
 
-    const card = document.createElement('div');
-    card.className = 'station-card' + (isActive ? ' active' : '');
-    card.dataset.id = s.id;
+function _renderVSBatch(container) {
+  const { cheapest, cheapestCount, fuelLabels, otherFuels } = _vsCtx;
+  const end = Math.min(_vsRendered + VS_BATCH, _vsList.length);
+  const frag = document.createDocumentFragment();
 
-    card.innerHTML = `
-      <div class="card-top">
-        <div style="flex:1;padding-right:8px">
-          <div class="station-name">
-            ${displayName}
-            ${isClosed ? '<span class="badge-closed">⛔ ЗАКРЫТА</span>' : ''}
-            ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
-            ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
-          </div>
-          <div class="station-addr">📍 ${s.address || 'Адрес не указан'}${distLabel}</div>
-          ${isClosed && stStatus.reason ? `<div class="station-closed-bar">⚡ ${stStatus.reason}</div>` : ''}
+  for (let i = _vsRendered; i < end; i++) {
+    frag.appendChild(_buildStationCard(_vsList[i], cheapest, cheapestCount, fuelLabels, otherFuels));
+  }
+  _vsRendered = end;
+
+  const old = container.querySelector('.vs-sentinel');
+  if (old) old.remove();
+  container.appendChild(frag);
+
+  if (_vsRendered < _vsList.length) {
+    const sentinel = document.createElement('div');
+    sentinel.className = 'vs-sentinel';
+    sentinel.style.cssText = 'height:1px;flex-shrink:0';
+    container.appendChild(sentinel);
+    _vsObserver = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) {
+        _vsObserver.disconnect(); _vsObserver = null;
+        _renderVSBatch(container);
+      }
+    }, { root: container, rootMargin: '200px' });
+    _vsObserver.observe(sentinel);
+  }
+}
+
+function _buildStationCard(s, cheapest, cheapestCount, fuelLabels, otherFuels) {
+  const isActive = s.id === selectedId;
+  const distKm = userLocation ? haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) : null;
+  const distLabel = distKm !== null
+    ? ` · <span style="color:#60a5fa;font-weight:600">${distKm < 1 ? Math.round(distKm * 1000) + ' м' : distKm.toFixed(1) + ' км'}</span>`
+    : '';
+  const stPrices = getPricesForStation(s);
+  const price = stPrices[activeFuel];
+  const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
+  const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
+  const cardSourceBrand = formatSourceName(hasLivePrices ? stPrices._source : null);
+  const cardEffectiveBrand = s.brand || cardSourceBrand || null;
+  const displayName = cardEffectiveBrand
+    ? (normalizeBrandName(cardEffectiveBrand) || cardEffectiveBrand)
+    : getDisplayName(s);
+  const stStatus = getStationStatus(s);
+  const isClosed = stStatus && stStatus.status === 'closed';
+
+  const card = document.createElement('div');
+  card.className = 'station-card' + (isActive ? ' active' : '');
+  card.dataset.id = s.id;
+  card.innerHTML = `
+    <div class="card-top">
+      <div style="flex:1;padding-right:8px">
+        <div class="station-name">
+          ${displayName}
+          ${isClosed ? '<span class="badge-closed">⛔ ЗАКРЫТА</span>' : ''}
+          ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
+          ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
         </div>
-        <div>
-          <div class="highlight-price">${price !== null && price !== undefined ? price + ' ₽' : '—'}</div>
-          <div class="highlight-label">${fuelLabels[activeFuel]}</div>
-        </div>
+        <div class="station-addr">📍 ${s.address || 'Адрес не указан'}${distLabel}</div>
+        ${isClosed && stStatus.reason ? `<div class="station-closed-bar">⚡ ${stStatus.reason}</div>` : ''}
       </div>
-      <div class="prices-mini">
-        ${otherFuels.map(f => {
-          const p = stPrices[f];
-          return `<span class="pmini" data-f="${f}">${fuelLabels[f]}: ${p !== null && p !== undefined ? p + ' ₽' : 'не указано'}</span>`;
-        }).join('')}
+      <div>
+        <div class="highlight-price">${price !== null && price !== undefined ? price + ' ₽' : '—'}</div>
+        <div class="highlight-label">${fuelLabels[activeFuel]}</div>
       </div>
-    `;
+    </div>
+    <div class="prices-mini">
+      ${otherFuels.map(f => {
+        const p = stPrices[f];
+        return `<span class="pmini" data-f="${f}">${fuelLabels[f]}: ${p !== null && p !== undefined ? p + ' ₽' : 'не указано'}</span>`;
+      }).join('')}
+    </div>
+  `;
+  card.addEventListener('click', () => openStation(s.id));
+  return card;
+}
 
-    card.addEventListener('click', () => openStation(s.id));
-    container.appendChild(card);
-  });
+function updateActiveCard(oldId, newId) {
+  if (oldId) {
+    const el = document.querySelector(`.station-card[data-id="${oldId}"]`);
+    if (el) el.classList.remove('active');
+  }
+  if (newId) {
+    const el = document.querySelector(`.station-card[data-id="${newId}"]`);
+    if (el) el.classList.add('active');
+  }
 }
 
 // ================================================================
 // OPEN STATION
 // ================================================================
 function openStation(id) {
+  const oldId = selectedId;
   const avg = calcAvgPrice(activeFuel);
 
   // Deselect previous marker (only it, not all)
@@ -1855,7 +1917,7 @@ function openStation(id) {
   }
   if (markersMap[id]) markersMap[id].openPopup();
 
-  renderList();
+  updateActiveCard(oldId, id);
 }
 
 // ================================================================
@@ -2175,8 +2237,9 @@ function closePanel() {
     const st = stationById[selectedId];
     if (st) markersMap[selectedId].setIcon(createMarkerIcon(markerColor(st, activeFuel, calcAvgPrice(activeFuel)), false));
   }
+  const oldId = selectedId;
   selectedId = null;
-  renderList();
+  updateActiveCard(oldId, null);
 }
 
 // ================================================================
@@ -2217,6 +2280,13 @@ function closePanel() {
     ? `Найдено <b>${shownStationCount}</b> АЗС · цены <b>${brandCount}</b> сетей${ageBadge}`
     : `Найдено <b>${shownStationCount}</b> АЗС · <span style="color:var(--muted)">цены не загружены</span>`;
 })();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () =>
+    navigator.serviceWorker.register('./sw.js').catch(() => {})
+  );
+}
 </script>
 </body>
 </html>
