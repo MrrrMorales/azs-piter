@@ -1051,6 +1051,21 @@ const BRAND_NAMES = [
   [['benzopro'],                                    'Benzopro'],
 ];
 
+const ADDR_ABBREVS = [
+  [/\bпр-т\.?\b/g, 'проспект'], [/\bпр\.\s*/g, 'проспект '],
+  [/\bул\.\s*/g, 'улица '],     [/\bпер\.\s*/g, 'переулок '],
+  [/\bпл\.\s*/g, 'площадь '],   [/\bш\.\s*/g, 'шоссе '],
+  [/\bнаб\.\s*/g, 'набережная '], [/\bб-р\b/g, 'бульвар'],
+  [/\bпгт\.?\s*/g, ''],         [/\bг\.\s*/g, ''],
+  [/\bд\.\s*/g, ''],            [/\bкорп?\.\s*/g, ''],
+];
+function normalizeForSearch(str) {
+  if (!str) return '';
+  let s = str.toLowerCase();
+  for (const [re, rep] of ADDR_ABBREVS) s = s.replace(re, rep);
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 function normalizeBrandName(raw) {
   if (!raw) return null;
   const n = raw.toLowerCase();
@@ -1502,13 +1517,18 @@ function getFilteredSorted() {
   }
 
   // Search
+  let nameMatchIds = null;
   if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    list = list.filter(s =>
-      s.name.toLowerCase().includes(q) ||
-      s.brand.toLowerCase().includes(q) ||
-      s.address.toLowerCase().includes(q)
-    );
+    const q = normalizeForSearch(searchQuery);
+    nameMatchIds = new Set();
+    list = list.filter(s => {
+      const byName =
+        getDisplayName(s).toLowerCase().includes(q) ||
+        (s.name || '').toLowerCase().includes(q) ||
+        (s.brand || '').toLowerCase().includes(q);
+      if (byName) nameMatchIds.add(s.id);
+      return byName || normalizeForSearch(s.address).includes(q);
+    });
   }
 
   // Sort
@@ -1538,6 +1558,11 @@ function getFilteredSorted() {
     );
   } else {
     list.sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
+  }
+
+  // Name/brand matches always float above address-only matches
+  if (nameMatchIds) {
+    list.sort((a, b) => (nameMatchIds.has(b.id) ? 1 : 0) - (nameMatchIds.has(a.id) ? 1 : 0));
   }
 
   return list;
@@ -1856,6 +1881,12 @@ document.getElementById('searchInput').addEventListener('input', e => {
   searchQuery = e.target.value.trim();
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(renderList, 150);
+});
+document.getElementById('searchInput').addEventListener('focus', () => {
+  if (isMobile()) {
+    closeMobileSidebar();
+    closePanel();
+  }
 });
 
 document.getElementById('nearbyCheck').addEventListener('change', e => {
