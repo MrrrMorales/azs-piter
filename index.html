@@ -1764,7 +1764,10 @@ function openStation(id) {
   }
   popupLink.textContent = 'Открыть на Яндекс Картах ↗';
 
-  document.getElementById('popupPanel').classList.add('open');
+  const popupPanel = document.getElementById('popupPanel');
+  popupPanel.style.transform = '';
+  popupPanel.style.transition = '';
+  popupPanel.classList.add('open');
 
   const targetZoom = Math.max(map.getZoom(), 16);
   const stPx = map.project([s.lat, s.lon], targetZoom);
@@ -1871,36 +1874,75 @@ document.getElementById('mobileMenuBtn').addEventListener('click', () => {
 document.getElementById('mobileBackdrop').addEventListener('click', closeMobileSidebar);
 map.on('click', closePanel);
 
-// Drag-to-close для нижних шторок на мобильном
+// Drag с multi-snap для нижних шторок на мобильном
 function makeDraggable(handleEl, panelEl, closeCallback) {
-  let startY = 0, lastDY = 0;
+  let startY = 0, currentOffset = 0, lastDY = 0;
+  let prevY = 0, prevTime = 0, velocity = 0;
+
+  // Читаем текущий translateY из inline-стиля
+  function getPanelOffset() {
+    const m = (panelEl.style.transform || '').match(/translateY\(([0-9.-]+)px\)/);
+    return m ? parseFloat(m[1]) : 0;
+  }
+
+  // Точки притяжения: [0 = открыта, peek = только заголовок, panelH = закрыта]
+  function getSnapPoints() {
+    const panelH = panelEl.offsetHeight;
+    const headerEl = panelEl.querySelector('.popup-header');
+    const handleH = handleEl.offsetHeight || 28;
+    if (headerEl) {
+      const peek = panelH - headerEl.offsetHeight - handleH;
+      return [0, Math.max(peek, 0), panelH];
+    }
+    return [0, panelH]; // сайдбар: только открыто/закрыто
+  }
+
+  // Ближайший снап с учётом скорости свайпа
+  function getNearestSnap(offset, vel) {
+    const snaps = getSnapPoints();
+    if (Math.abs(vel) > 0.3) {
+      if (vel > 0) return snaps.find(s => s > offset + 10) ?? snaps[snaps.length - 1];
+      return [...snaps].reverse().find(s => s < offset - 10) ?? snaps[0];
+    }
+    return snaps.reduce((a, b) => Math.abs(b - offset) < Math.abs(a - offset) ? b : a);
+  }
+
+  function snapTo(target) {
+    const panelH = panelEl.offsetHeight;
+    const isClosed = target >= panelH * 0.9;
+    panelEl.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1)';
+    panelEl.style.transform = `translateY(${target}px)`;
+    setTimeout(() => {
+      panelEl.style.transition = '';
+      if (isClosed) {
+        panelEl.style.transform = '';
+        closeCallback();
+      } else if (target === 0) {
+        panelEl.style.transform = ''; // отдаём управление CSS-классу
+      }
+    }, 300);
+  }
 
   function onMove(e) {
-    const dy = Math.max(0, e.touches[0].clientY - startY);
-    lastDY = dy;
-    panelEl.style.transform = `translateY(${dy}px)`;
+    const y = e.touches[0].clientY;
+    const now = Date.now();
+    const dt = now - prevTime;
+    if (dt > 0) velocity = (y - prevY) / dt;
+    prevY = y; prevTime = now;
+    lastDY = Math.max(0, currentOffset + (y - startY));
+    panelEl.style.transform = `translateY(${lastDY}px)`;
   }
 
   function onEnd() {
     document.removeEventListener('touchmove', onMove);
-    panelEl.style.transition = 'transform 0.28s cubic-bezier(0.4,0,0.2,1)';
-    if (lastDY > 80) {
-      panelEl.style.transform = 'translateY(100%)';
-      setTimeout(() => {
-        panelEl.style.transform = '';
-        panelEl.style.transition = '';
-        closeCallback();
-      }, 280);
-    } else {
-      panelEl.style.transform = '';
-      setTimeout(() => { panelEl.style.transition = ''; }, 300);
-    }
-    lastDY = 0;
+    snapTo(getNearestSnap(lastDY, velocity));
   }
 
   handleEl.addEventListener('touchstart', (e) => {
+    currentOffset = getPanelOffset();
     startY = e.touches[0].clientY;
-    lastDY = 0;
+    prevY = startY; prevTime = Date.now();
+    velocity = 0; lastDY = currentOffset;
     panelEl.style.transition = 'none';
     document.addEventListener('touchmove', onMove, { passive: true });
     document.addEventListener('touchend', onEnd, { once: true });
