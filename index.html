@@ -554,10 +554,12 @@
       .sidebar-handle {
         display: flex;
         justify-content: center;
-        padding: 10px 0 4px;
+        align-items: center;
+        height: 28px;
         flex-shrink: 0;
-        cursor: pointer;
+        cursor: grab;
         -webkit-tap-highlight-color: transparent;
+        touch-action: none;
       }
       .sidebar-handle::after {
         content: '';
@@ -589,10 +591,12 @@
       .popup-handle {
         display: flex;
         justify-content: center;
-        padding: 10px 0 0;
+        align-items: center;
+        height: 28px;
         flex-shrink: 0;
-        cursor: pointer;
+        cursor: grab;
         -webkit-tap-highlight-color: transparent;
+        touch-action: none;
       }
       .popup-handle::after {
         content: '';
@@ -1865,9 +1869,54 @@ document.getElementById('mobileMenuBtn').addEventListener('click', () => {
   }
 });
 document.getElementById('mobileBackdrop').addEventListener('click', closeMobileSidebar);
-document.getElementById('sidebarHandle').addEventListener('click', closeMobileSidebar);
-document.getElementById('popupHandle').addEventListener('click', closePanel);
 map.on('click', closePanel);
+
+// Drag-to-close для нижних шторок на мобильном
+function makeDraggable(handleEl, panelEl, closeCallback) {
+  let startY = 0, lastDY = 0;
+
+  function onMove(e) {
+    const dy = Math.max(0, e.touches[0].clientY - startY);
+    lastDY = dy;
+    panelEl.style.transform = `translateY(${dy}px)`;
+  }
+
+  function onEnd() {
+    document.removeEventListener('touchmove', onMove);
+    panelEl.style.transition = 'transform 0.28s cubic-bezier(0.4,0,0.2,1)';
+    if (lastDY > 80) {
+      panelEl.style.transform = 'translateY(100%)';
+      setTimeout(() => {
+        panelEl.style.transform = '';
+        panelEl.style.transition = '';
+        closeCallback();
+      }, 280);
+    } else {
+      panelEl.style.transform = '';
+      setTimeout(() => { panelEl.style.transition = ''; }, 300);
+    }
+    lastDY = 0;
+  }
+
+  handleEl.addEventListener('touchstart', (e) => {
+    startY = e.touches[0].clientY;
+    lastDY = 0;
+    panelEl.style.transition = 'none';
+    document.addEventListener('touchmove', onMove, { passive: true });
+    document.addEventListener('touchend', onEnd, { once: true });
+  }, { passive: true });
+}
+
+makeDraggable(
+  document.getElementById('sidebarHandle'),
+  document.querySelector('.sidebar'),
+  closeMobileSidebar
+);
+makeDraggable(
+  document.getElementById('popupHandle'),
+  document.getElementById('popupPanel'),
+  closePanel
+);
 
 function closePanel() {
   document.getElementById('popupPanel').classList.remove('open');
