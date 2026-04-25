@@ -1793,13 +1793,22 @@ function openStation(id) {
 function isMobile() { return window.innerWidth <= 768; }
 
 function openMobileSidebar() {
+  // Закрываем попап если открыт (включая peek)
+  const popup = document.getElementById('popupPanel');
+  popup.style.transform = '';
+  popup.style.transition = '';
+  popup.classList.remove('open');
+
   document.querySelector('.sidebar').classList.add('mobile-open');
   document.getElementById('mobileBackdrop').classList.add('visible');
   document.getElementById('mobileMenuBtn').textContent = '✕';
 }
 
 function closeMobileSidebar() {
-  document.querySelector('.sidebar').classList.remove('mobile-open');
+  const sidebar = document.querySelector('.sidebar');
+  sidebar.style.transform = '';
+  sidebar.style.transition = '';
+  sidebar.classList.remove('mobile-open');
   document.getElementById('mobileBackdrop').classList.remove('visible');
   document.getElementById('mobileMenuBtn').textContent = '☰';
 }
@@ -1961,7 +1970,10 @@ makeDraggable(
 );
 
 function closePanel() {
-  document.getElementById('popupPanel').classList.remove('open');
+  const panel = document.getElementById('popupPanel');
+  panel.style.transform = '';
+  panel.style.transition = '';
+  panel.classList.remove('open');
   if (selectedId && markersMap[selectedId]) {
     const st = stationById[selectedId];
     if (st) markersMap[selectedId].setIcon(createMarkerIcon(markerColor(st, activeFuel, calcAvgPrice(activeFuel)), false));
