@@ -496,6 +496,142 @@
     .locate-btn.located { border-color: #3b82f6; color: #3b82f6; background: #3b82f622; }
     @keyframes geo-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
+    /* ================================================================
+       MOBILE (≤ 768px)
+       ================================================================ */
+    .mobile-menu-btn {
+      display: none;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      width: 36px; height: 36px;
+      font-size: 20px;
+      cursor: pointer;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mobile-menu-btn:active { background: var(--border); }
+
+    .mobile-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 490;
+    }
+    .mobile-backdrop.visible { display: block; }
+
+    .sidebar-handle, .popup-handle { display: none; }
+
+    @media (max-width: 768px) {
+      /* Header */
+      header { padding: 0 10px; height: 48px; gap: 8px; }
+      .logo { font-size: 16px; }
+      .header-search { max-width: none; }
+      #stationCount { display: none; }
+      .mobile-menu-btn { display: flex; }
+
+      /* Sidebar → bottom drawer */
+      .sidebar {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        width: 100%;
+        height: 78vh;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        border-radius: 20px 20px 0 0;
+        transform: translateY(100%);
+        transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 500;
+        box-shadow: 0 -8px 32px rgba(0,0,0,0.55);
+      }
+      .sidebar.mobile-open { transform: translateY(0); }
+
+      .sidebar-handle {
+        display: flex;
+        justify-content: center;
+        padding: 10px 0 4px;
+        flex-shrink: 0;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .sidebar-handle::after {
+        content: '';
+        width: 40px; height: 4px;
+        background: var(--border);
+        border-radius: 2px;
+        display: block;
+      }
+
+      /* Loading overlay — full screen on mobile */
+      .loading-overlay { top: 48px; left: 0; }
+
+      /* Popup panel → full-width bottom sheet */
+      .popup-panel {
+        position: fixed;
+        top: auto;
+        bottom: 0; left: 0; right: 0;
+        width: 100%;
+        height: 72vh;
+        border-left: none;
+        border-top: 1px solid var(--border);
+        border-radius: 20px 20px 0 0;
+        transform: translateY(100%);
+        z-index: 600;
+        box-shadow: 0 -8px 32px rgba(0,0,0,0.55);
+      }
+      .popup-panel.open { transform: translateY(0); }
+
+      .popup-handle {
+        display: flex;
+        justify-content: center;
+        padding: 10px 0 0;
+        flex-shrink: 0;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .popup-handle::after {
+        content: '';
+        width: 40px; height: 4px;
+        background: var(--border);
+        border-radius: 2px;
+        display: block;
+      }
+
+      /* Compact filter/sort bars */
+      .filter-bar { padding: 8px 12px 10px; }
+      .nearby-section { padding: 6px 12px 8px; }
+      .sort-bar { padding: 6px 12px; }
+      .fuel-tab { padding: 6px 2px; font-size: 11px; }
+      .open-now-toggle { padding: 7px 12px 8px; }
+
+      /* Radius chips: scrollable horizontal */
+      .radius-chips {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+      .radius-chips::-webkit-scrollbar { display: none; }
+      .radius-chip { flex-shrink: 0; }
+
+      /* Station cards: compact */
+      .station-card { padding: 10px; }
+      .highlight-price { font-size: 18px; }
+
+      /* Popup header: compact */
+      .popup-header { padding: 10px 16px 14px; }
+
+      /* Safe area for iOS home indicator */
+      .station-list { padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px); }
+      .popup-body { padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px); }
+    }
+
     /* Leaflet popup */
     .leaflet-popup-content-wrapper {
       background: var(--surface2); color: var(--text);
@@ -524,6 +660,7 @@
     <input type="text" id="searchInput" placeholder="Поиск заправки или бренда...">
   </div>
   <div id="stationCount">Загрузка...</div>
+  <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Список АЗС">☰</button>
 </header>
 
 <div id="errorBar" class="error-bar">
@@ -532,6 +669,7 @@
 
 <div class="app" style="position:relative">
   <div class="sidebar">
+    <div class="sidebar-handle" id="sidebarHandle"></div>
     <div class="filter-bar">
       <h3>Фильтр по топливу</h3>
       <div class="fuel-tabs">
@@ -586,8 +724,11 @@
     <div class="loading-sub" id="loadingSub">Санкт-Петербург и Ленинградская область…</div>
   </div>
 
+  <div class="mobile-backdrop" id="mobileBackdrop"></div>
+
   <!-- Detail panel -->
   <div class="popup-panel" id="popupPanel">
+    <div class="popup-handle" id="popupHandle"></div>
     <div class="popup-header">
       <button class="popup-close" id="popupClose">✕</button>
       <div class="popup-brand" id="popupBrand"></div>
@@ -1470,6 +1611,7 @@ function openStation(id) {
   selectedId = id;
   const s = stationById[id];
   if (!s) return;
+  if (isMobile()) closeMobileSidebar();
 
   const avg = calcAvgPrice(activeFuel);
   Object.entries(markersMap).forEach(([mid, marker]) => {
@@ -1621,16 +1763,38 @@ function openStation(id) {
   document.getElementById('popupPanel').classList.add('open');
 
   const targetZoom = Math.max(map.getZoom(), 16);
-  // Сайдбар — в flex-потоке (не поверх карты), поэтому карта начинается после него.
-  // Popup-panel накрывает правые 300px карты, поэтому видимый центр = -150px от центра контейнера карты.
-  // Чтобы станция попала в центр видимой области — сдвигаем точку flyTo на +150px вправо.
-  const PANEL_W = 300;
   const stPx = map.project([s.lat, s.lon], targetZoom);
-  const adjustedLatLng = map.unproject(stPx.add([PANEL_W / 2, 0]), targetZoom);
-  map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.6 });
+  if (isMobile()) {
+    // Popup panel is 72vh, pan so station appears in center of visible top 28%
+    const offsetY = 0.72 * window.innerHeight / 2;
+    const adjustedLatLng = map.unproject(stPx.add([0, offsetY]), targetZoom);
+    map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.6 });
+  } else {
+    // Desktop: popup panel is 300px on the right, offset map center accordingly
+    const PANEL_W = 300;
+    const adjustedLatLng = map.unproject(stPx.add([PANEL_W / 2, 0]), targetZoom);
+    map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.6 });
+  }
   if (markersMap[id]) markersMap[id].openPopup();
 
   renderList();
+}
+
+// ================================================================
+// MOBILE SIDEBAR
+// ================================================================
+function isMobile() { return window.innerWidth <= 768; }
+
+function openMobileSidebar() {
+  document.querySelector('.sidebar').classList.add('mobile-open');
+  document.getElementById('mobileBackdrop').classList.add('visible');
+  document.getElementById('mobileMenuBtn').textContent = '✕';
+}
+
+function closeMobileSidebar() {
+  document.querySelector('.sidebar').classList.remove('mobile-open');
+  document.getElementById('mobileBackdrop').classList.remove('visible');
+  document.getElementById('mobileMenuBtn').textContent = '☰';
 }
 
 // ================================================================
@@ -1693,6 +1857,16 @@ document.querySelectorAll('.radius-chip').forEach(chip => {
 });
 
 document.getElementById('popupClose').addEventListener('click', closePanel);
+document.getElementById('mobileMenuBtn').addEventListener('click', () => {
+  if (document.querySelector('.sidebar').classList.contains('mobile-open')) {
+    closeMobileSidebar();
+  } else {
+    openMobileSidebar();
+  }
+});
+document.getElementById('mobileBackdrop').addEventListener('click', closeMobileSidebar);
+document.getElementById('sidebarHandle').addEventListener('click', closeMobileSidebar);
+document.getElementById('popupHandle').addEventListener('click', closePanel);
 map.on('click', closePanel);
 
 function closePanel() {
