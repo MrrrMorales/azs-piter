@@ -1885,16 +1885,16 @@ function makeDraggable(handleEl, panelEl, closeCallback) {
     return m ? parseFloat(m[1]) : 0;
   }
 
-  // Точки притяжения: [0 = открыта, peek = только заголовок, panelH = закрыта]
+  // Точки притяжения: [0 = открыта, peek = только верхняя секция, panelH = закрыта]
   function getSnapPoints() {
     const panelH = panelEl.offsetHeight;
-    const headerEl = panelEl.querySelector('.popup-header');
     const handleH = handleEl.offsetHeight || 28;
-    if (headerEl) {
-      const peek = panelH - headerEl.offsetHeight - handleH;
+    const peekEl = panelEl.querySelector('.popup-header') || panelEl.querySelector('.filter-bar');
+    if (peekEl) {
+      const peek = panelH - peekEl.offsetHeight - handleH;
       return [0, Math.max(peek, 0), panelH];
     }
-    return [0, panelH]; // сайдбар: только открыто/закрыто
+    return [0, panelH];
   }
 
   // Ближайший снап с учётом скорости свайпа
