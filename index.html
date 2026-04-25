@@ -1912,10 +1912,34 @@ document.getElementById('searchInput').addEventListener('input', e => {
 });
 document.getElementById('searchInput').addEventListener('focus', () => {
   if (isMobile()) {
-    closeMobileSidebar();
     closePanel();
+    openMobileSidebar();
   }
 });
+document.getElementById('searchInput').addEventListener('blur', () => {
+  if (isMobile()) {
+    document.querySelector('.sidebar').style.height = '';
+    if (!searchQuery) closeMobileSidebar();
+  }
+});
+
+// Подстраиваем сайдбар под высоту видимой области (выше клавиатуры)
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar || !isMobile()) return;
+    const vvH = window.visualViewport.height;
+    const headerH = document.querySelector('header').offsetHeight;
+    const available = vvH - headerH;
+    if (available < window.innerHeight * 0.5) {
+      // клавиатура открыта — ограничиваем высоту сайдбара
+      sidebar.style.height = Math.max(available, 180) + 'px';
+      sidebar.style.bottom = '0';
+    } else {
+      sidebar.style.height = '';
+    }
+  });
+}
 
 document.getElementById('nearbyCheck').addEventListener('change', e => {
   nearbyEnabled = e.target.checked;
