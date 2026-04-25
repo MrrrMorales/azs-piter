@@ -712,10 +712,23 @@ function getBrandInfo(station) {
 // ================================================================
 // LOAD цен из prices.json + station_prices.json
 // ================================================================
+async function fetchWithTimeout(url, ms = 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    return r;
+  } catch (e) {
+    clearTimeout(t);
+    throw e;
+  }
+}
+
 async function loadPrices() {
   // Загружаем сетевые цены по брендам
   try {
-    const r = await fetch('prices.json?' + Date.now());
+    const r = await fetchWithTimeout('prices.json?' + Date.now());
     if (!r.ok) throw new Error('prices.json ' + r.status);
     const data = await r.json();
     brandPrices = data.prices || {};
@@ -730,7 +743,7 @@ async function loadPrices() {
 
   // Загружаем индивидуальные цены по каждой АЗС
   try {
-    const r2 = await fetch('station_prices.json?' + Date.now());
+    const r2 = await fetchWithTimeout('station_prices.json?' + Date.now());
     if (r2.ok) {
       const data2 = await r2.json();
       stationPrices = data2.stations || {};
@@ -742,7 +755,7 @@ async function loadPrices() {
 
   // Загружаем статусы станций из @AZSKIRISHI
   try {
-    const r3 = await fetch('station_status.json?' + Date.now());
+    const r3 = await fetchWithTimeout('station_status.json?' + Date.now());
     if (r3.ok) {
       const data3 = await r3.json();
       stationStatusOverrides = data3.overrides || {};
@@ -1696,8 +1709,9 @@ function closePanel() {
 // INIT
 // ================================================================
 (async () => {
-  // Грузим цены из prices.json (если есть) и заправки из OSM параллельно
-  const [ok] = await Promise.all([loadStations(), loadPrices()]);
+  // Станции — критический путь, цены — фон (не блокируют оверлей)
+  const pricesPromise = loadPrices();
+  const ok = await loadStations();
 
   document.getElementById('loadingOverlay').classList.add('hidden');
 
@@ -1711,6 +1725,11 @@ function closePanel() {
     return;
   }
 
+  buildMarkers();
+  renderList();
+
+  // Ждём цены (уже грузятся в фоне) и перерисовываем маркеры с ценами
+  await pricesPromise;
   buildMarkers();
   renderList();
 
