@@ -350,6 +350,15 @@
       transition: color 0.15s;
     }
     .popup-close:hover { color: var(--text); }
+    .popup-flyto {
+      position: absolute; top: 12px; right: 44px;
+      background: var(--surface2); border: none;
+      color: var(--accent); width: 26px; height: 26px;
+      border-radius: 50%; cursor: pointer; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, transform 0.15s;
+    }
+    .popup-flyto:hover { color: #fff; transform: scale(1.1); }
     .popup-brand {
       font-family: 'Oswald', sans-serif;
       font-size: 11px; letter-spacing: 2px;
@@ -501,6 +510,10 @@
     .locate-btn.locating { border-color: #3b82f6; color: #3b82f6; animation: geo-pulse 1s ease-in-out infinite; }
     .locate-btn.located { border-color: #3b82f6; color: #3b82f6; background: #3b82f622; }
     @keyframes geo-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    @keyframes markerPulse {
+      0% { transform: scale(0.6); opacity: 0.9; }
+      100% { transform: scale(2); opacity: 0; }
+    }
 
     /* ================================================================
        MOBILE (≤ 768px)
@@ -743,6 +756,7 @@
     <div class="popup-handle" id="popupHandle"></div>
     <div class="popup-header">
       <button class="popup-close" id="popupClose">✕</button>
+      <button class="popup-flyto" id="popupFlyto" title="Показать на карте">⊕</button>
       <div class="popup-brand" id="popupBrand"></div>
       <div class="popup-title" id="popupTitle">—</div>
       <div class="popup-addr" id="popupAddr">—</div>
@@ -1253,16 +1267,30 @@ function markerColor(station, fuel, avg) {
 
 function createMarkerIcon(color, selected) {
   const size = selected ? 36 : 26;
-  const html = `
+  const pulse = (selected && !isMobile()) ? `
     <div style="
+      position:absolute;
       width:${size}px;height:${size}px;
       border-radius:50%;
-      background:${color};
-      display:flex;align-items:center;justify-content:center;
-      border:${selected ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.4)'};
-      box-shadow:0 2px ${selected ? 12 : 4}px rgba(0,0,0,0.6);
-    ">
-      <span style="font-size:${selected ? 16 : 12}px;line-height:1">⛽</span>
+      border:3px solid ${color};
+      top:0;left:0;
+      animation:markerPulse 1.6s ease-out infinite;
+      pointer-events:none;
+    "></div>` : '';
+  const html = `
+    <div style="position:relative;width:${size}px;height:${size}px;">
+      ${pulse}
+      <div style="
+        position:absolute;top:0;left:0;
+        width:${size}px;height:${size}px;
+        border-radius:50%;
+        background:${color};
+        display:flex;align-items:center;justify-content:center;
+        border:${selected ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.4)'};
+        box-shadow:0 2px ${selected ? 12 : 4}px rgba(0,0,0,0.6);
+      ">
+        <span style="font-size:${selected ? 16 : 12}px;line-height:1">⛽</span>
+      </div>
     </div>`;
   return L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2] });
 }
@@ -1924,6 +1952,22 @@ document.querySelectorAll('.radius-chip').forEach(chip => {
 });
 
 document.getElementById('popupClose').addEventListener('click', closePanel);
+document.getElementById('popupFlyto').addEventListener('click', () => {
+  if (!selectedId) return;
+  const s = stationById[selectedId];
+  if (!s) return;
+  const targetZoom = Math.max(map.getZoom(), 16);
+  const stPx = map.project([s.lat, s.lon], targetZoom);
+  if (isMobile()) {
+    const offsetY = 0.72 * window.innerHeight / 2;
+    const adjustedLatLng = map.unproject(stPx.add([0, offsetY]), targetZoom);
+    map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.8 });
+  } else {
+    const PANEL_W = 300;
+    const adjustedLatLng = map.unproject(stPx.add([PANEL_W / 2, 0]), targetZoom);
+    map.flyTo(adjustedLatLng, targetZoom, { animate: true, duration: 0.8 });
+  }
+});
 document.getElementById('mobileMenuBtn').addEventListener('click', () => {
   if (document.querySelector('.sidebar').classList.contains('mobile-open')) {
     closeMobileSidebar();
