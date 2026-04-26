@@ -2274,6 +2274,7 @@ function openSearchPanel() {
   _spOpen = true;
   clearTimeout(_spBlurTimer);
   closePanel();
+  closeMobileSidebar();
   renderSearchPanel();
   document.getElementById('searchPanel').classList.add('sp-open');
 }
@@ -2356,6 +2357,7 @@ document.getElementById('searchInput').addEventListener('input', e => {
   searchQuery = e.target.value.trim();
   const clearBtn = document.getElementById('searchClearBtn');
   clearBtn.classList.toggle('visible', searchQuery.length > 0);
+  clearTimeout(_spBlurTimer); // не давать blur (от открытия клавиатуры) закрыть панель пока печатаем
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(() => {
     renderList();
