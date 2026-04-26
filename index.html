@@ -70,10 +70,11 @@
       background: var(--surface2);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 7px 12px 7px 32px;
+      padding: 7px 30px 7px 32px;
       color: var(--text);
       font-size: 13px;
       outline: none;
+      transition: border-color 0.15s;
     }
     .header-search input::placeholder { color: var(--muted); }
     .header-search input:focus { border-color: var(--accent); }
@@ -84,7 +85,29 @@
       transform: translateY(-50%);
       color: var(--muted);
       font-size: 14px;
+      pointer-events: none;
     }
+    .search-clear-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--border);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+      display: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .search-clear-btn:hover { background: var(--muted); color: var(--surface); }
+    .search-clear-btn.visible { display: block; }
     #stationCount {
       font-size: 12px;
       color: var(--muted);
@@ -193,15 +216,15 @@
     .station-card {
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 6px;
+      border-radius: 10px;
+      padding: 11px 12px;
+      margin-bottom: 5px;
       cursor: pointer;
       transition: border-color 0.15s;
       position: relative;
       contain: layout style;
       content-visibility: auto;
-      contain-intrinsic-size: 0 84px;
+      contain-intrinsic-size: 0 90px;
     }
     .station-card::before {
       content: '';
@@ -220,28 +243,55 @@
 
     .card-top {
       display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 8px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 7px;
     }
+    .card-avatar {
+      width: 36px; height: 36px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.3px;
+      color: #fff;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      overflow: hidden;
+    }
+    .avatar-img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      padding: 5px;
+      display: block;
+    }
+    .card-body { flex: 1; min-width: 0; }
     .station-name {
       font-family: 'Oswald', sans-serif;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
-      flex: 1;
-      padding-right: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .station-addr {
       font-size: 11px;
       color: var(--muted);
       margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
+    .card-price-col { text-align: right; flex-shrink: 0; }
     .highlight-price {
       font-family: 'Oswald', sans-serif;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 700;
       color: var(--accent);
-      text-align: right;
+      line-height: 1.2;
     }
     .highlight-label {
       font-size: 10px;
@@ -661,6 +711,136 @@
       .popup-body { padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px); touch-action: none; overscroll-behavior: contain; }
     }
 
+    /* ===================== SEARCH PANEL ===================== */
+    #searchPanel {
+      position: fixed;
+      top: 52px;
+      left: 0; right: 0;
+      z-index: 800;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      border-bottom: 1px solid var(--border);
+    }
+    #searchPanel.sp-open {
+      pointer-events: auto;
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .sp-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px 7px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sp-count {
+      flex: 1;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+    }
+    .sp-fuel-hint {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface2);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .sp-list {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+    .sp-item {
+      display: flex;
+      align-items: center;
+      padding: 11px 16px;
+      gap: 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.12s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .sp-item:last-child { border-bottom: none; }
+    .sp-item:hover, .sp-item:active { background: var(--surface2); }
+    .sp-avatar {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      font-family: 'Oswald', sans-serif;
+      letter-spacing: 0.3px;
+      color: #fff;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      overflow: hidden;
+    }
+    .sp-info { flex: 1; min-width: 0; }
+    .sp-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .sp-addr {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+    .sp-right { text-align: right; flex-shrink: 0; }
+    .sp-price {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .sp-price-fuel {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 1px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .sp-badge-live {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--green);
+      letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+    .sp-empty {
+      padding: 48px 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      #searchPanel { top: 48px; max-height: calc(100vh - 48px); }
+      .sp-list { max-height: calc(100vh - 48px - 34px); }
+    }
+    @media (min-width: 769px) {
+      #searchPanel { display: none; }
+    }
+    /* ======================================================= */
+
     /* Leaflet popup */
     .leaflet-popup-content-wrapper {
       background: var(--surface2); color: var(--text);
@@ -686,11 +866,20 @@
   <div class="logo">⛽ АЗС<span>Питер</span></div>
   <div class="header-search">
     <span class="search-icon">🔍</span>
-    <input type="text" id="searchInput" placeholder="Поиск заправки или бренда...">
+    <input type="text" id="searchInput" placeholder="Поиск заправки или бренда..." autocomplete="off" autocorrect="off" spellcheck="false">
+    <button class="search-clear-btn" id="searchClearBtn" aria-label="Очистить поиск">✕</button>
   </div>
   <div id="stationCount">Загрузка...</div>
   <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Список АЗС">☰</button>
 </header>
+
+<div id="searchPanel" role="listbox" aria-label="Результаты поиска">
+  <div class="sp-header">
+    <span class="sp-count" id="spCount"></span>
+    <span class="sp-fuel-hint" id="spFuelHint"></span>
+  </div>
+  <div class="sp-list" id="spList"></div>
+</div>
 
 <div id="errorBar" class="error-bar">
   Не удалось загрузить данные. Проверьте подключение к интернету и перезагрузите страницу.
@@ -1687,23 +1876,23 @@ function _buildStationCard(s, cheapest, cheapestCount, fuelLabels, otherFuels) {
     : getDisplayName(s);
   const stStatus = getStationStatus(s);
   const isClosed = stStatus && stStatus.status === 'closed';
-
   const card = document.createElement('div');
   card.className = 'station-card' + (isActive ? ' active' : '');
   card.dataset.id = s.id;
   card.innerHTML = `
     <div class="card-top">
-      <div style="flex:1;padding-right:8px">
+      <div class="card-avatar-slot"></div>
+      <div class="card-body">
         <div class="station-name">
           ${displayName}
           ${isClosed ? '<span class="badge-closed">⛔ ЗАКРЫТА</span>' : ''}
           ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
           ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
         </div>
-        <div class="station-addr">📍 ${s.address || 'Адрес не указан'}${distLabel}</div>
+        <div class="station-addr">${s.address || 'Адрес не указан'}${distLabel}</div>
         ${isClosed && stStatus.reason ? `<div class="station-closed-bar">⚡ ${stStatus.reason}</div>` : ''}
       </div>
-      <div>
+      <div class="card-price-col">
         <div class="highlight-price">${price !== null && price !== undefined ? price + ' ₽' : '—'}</div>
         <div class="highlight-label">${fuelLabels[activeFuel]}</div>
       </div>
@@ -1715,6 +1904,7 @@ function _buildStationCard(s, cheapest, cheapestCount, fuelLabels, otherFuels) {
       }).join('')}
     </div>
   `;
+  card.querySelector('.card-avatar-slot').replaceWith(buildAvatar(displayName, 'card-avatar'));
   card.addEventListener('click', () => openStation(s.id));
   return card;
 }
@@ -1966,39 +2156,275 @@ document.getElementById('openNowCheck').addEventListener('change', e => {
   renderList();
 });
 
+// ================================================================
+// SEARCH PANEL
+// ================================================================
+const BRAND_COLORS = {
+  'лукойл':       '#e8292a',
+  'газпром нефть':'#0073b7',
+  'газпром':      '#1a6fbf',
+  'роснефть':     '#d97706',
+  'neste':        '#00a651',
+  'teboil':       '#e30613',
+  'татнефть':     '#e67e00',
+  'птк':          '#2563eb',
+  'сургутнефтегаз':'#7c3aed',
+  'shell':        '#dd0000',
+  'bp':           '#00693e',
+  'esso':         '#d7282f',
+  'фаэтон':       '#1d4ed8',
+  'трасса':       '#059669',
+  'авро':         '#0ea5e9',
+  'vtk':          '#0284c7',
+  'втк':          '#0284c7',
+  'nord point':   '#6366f1',
+  'nord-line':    '#8b5cf6',
+  'линос':        '#f59e0b',
+  'ойлпласт':     '#10b981',
+  'санга':        '#ec4899',
+  'китэк':        '#14b8a6',
+  'нева-ойл':     '#06b6d4',
+  'топсис':       '#84cc16',
+  'oil store':    '#f97316',
+  'benzopro':     '#a855f7',
+  'shelf':        '#3b82f6',
+  'опти':         '#22d3ee',
+  'aris':         '#fb923c',
+  'apn':          '#4ade80',
+};
+
+const BRAND_LOGO_DOMAINS = {
+  'лукойл':         'lukoil.ru',
+  'газпром нефть':  'gazprom-neft.com',
+  'газпром':        'gazprom.ru',
+  'роснефть':       'rosneft.ru',
+  'neste':          'neste.com',
+  'teboil':         'teboil.fi',
+  'татнефть':       'tatneft.ru',
+  'сургутнефтегаз': 'surgutneftegas.ru',
+  'shell':          'shell.com',
+  'bp':             'bp.com',
+  'esso':           'esso.com',
+  'птк':            'ptk.ru',
+};
+
+function getBrandColor(displayName) {
+  const n = (displayName || '').toLowerCase();
+  for (const [key, color] of Object.entries(BRAND_COLORS)) {
+    if (n.includes(key)) return color;
+  }
+  return '#6b7280';
+}
+
+function getBrandAbbr(displayName) {
+  const n = displayName || 'АЗС';
+  const words = n.trim().split(/\s+/);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return n.substring(0, 2).toUpperCase();
+}
+
+function getBrandLogoUrl(displayName) {
+  const n = (displayName || '').toLowerCase();
+  for (const [key, domain] of Object.entries(BRAND_LOGO_DOMAINS)) {
+    if (n.includes(key)) return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  }
+  return null;
+}
+
+function buildAvatar(name, cssClass) {
+  const color  = getBrandColor(name);
+  const abbr   = getBrandAbbr(name);
+  const logo   = getBrandLogoUrl(name);
+  const div = document.createElement('div');
+  div.className = cssClass;
+  div.dataset.color = color;
+  div.dataset.abbr  = abbr;
+  if (logo) {
+    div.style.background = '#fff';
+    const img = document.createElement('img');
+    img.src = logo;
+    img.className = 'avatar-img';
+    img.alt = abbr;
+    div.appendChild(img);
+  } else {
+    div.style.background = color;
+    const span = document.createElement('span');
+    span.textContent = abbr;
+    div.appendChild(span);
+  }
+  return div;
+}
+
+document.addEventListener('error', e => {
+  if (!e.target.classList.contains('avatar-img')) return;
+  const av = e.target.parentElement;
+  if (!av) return;
+  av.style.background = av.dataset.color;
+  e.target.remove();
+  const span = document.createElement('span');
+  span.textContent = av.dataset.abbr;
+  av.appendChild(span);
+}, true);
+
+let _spOpen = false;
+let _spBlurTimer = null;
+
+function openSearchPanel() {
+  if (_spOpen || !isMobile()) return;
+  _spOpen = true;
+  clearTimeout(_spBlurTimer);
+  closePanel();
+  renderSearchPanel();
+  document.getElementById('searchPanel').classList.add('sp-open');
+}
+
+function closeSearchPanel() {
+  if (!_spOpen) return;
+  _spOpen = false;
+  document.getElementById('searchPanel').classList.remove('sp-open');
+}
+
+function renderSearchPanel() {
+  const fuelLabels = { '92':'АИ-92', '95':'АИ-95', '100':'АИ-100', 'dt':'ДТ' };
+  const list = getFilteredSorted()
+    .filter(s => searchQuery || getDisplayName(s) !== 'АЗС')
+    .slice(0, 60);
+  const countEl = document.getElementById('spCount');
+  const hintEl  = document.getElementById('spFuelHint');
+  const container = document.getElementById('spList');
+
+  countEl.textContent = searchQuery
+    ? `Найдено: ${list.length}`
+    : `${list.length} заправок`;
+  hintEl.textContent = fuelLabels[activeFuel];
+
+  container.innerHTML = '';
+  if (list.length === 0) {
+    container.innerHTML = `<div class="sp-empty">По запросу «${searchQuery}» ничего не найдено</div>`;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  const allPrices = list.map(s => getPricesForStation(s)[activeFuel]).filter(p => p !== null && p !== undefined);
+  const cheapest = allPrices.length ? Math.min(...allPrices) : null;
+
+  list.forEach(s => {
+    const stPrices = getPricesForStation(s);
+    const price = stPrices[activeFuel];
+    const name = getDisplayName(s);
+    const color = getBrandColor(name);
+    const abbr = getBrandAbbr(name);
+    const hasLive = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
+    const isCheapest = cheapest !== null && price === cheapest;
+    const distKm = userLocation ? haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) : null;
+    const distStr = distKm !== null
+      ? (distKm < 1 ? Math.round(distKm * 1000) + ' м' : distKm.toFixed(1) + ' км')
+      : '';
+    const addr = s.address || 'Адрес не указан';
+
+    const item = document.createElement('div');
+    item.className = 'sp-item';
+    item.setAttribute('role', 'option');
+    item.dataset.id = s.id;
+    item.innerHTML = `
+      <div class="sp-avatar-slot"></div>
+      <div class="sp-info">
+        <div class="sp-name">${name}</div>
+        <div class="sp-addr">${addr}${distStr ? ' · ' + distStr : ''}</div>
+      </div>
+      <div class="sp-right">
+        <div class="sp-price">${price !== null && price !== undefined ? price + ' ₽' : '—'}</div>
+        ${isCheapest && price !== null ? '<div class="sp-badge-live">● ДЕШЕВЛЕ</div>' : hasLive ? '<div class="sp-badge-live">● LIVE</div>' : `<div class="sp-price-fuel">${fuelLabels[activeFuel]}</div>`}
+      </div>
+    `;
+    item.querySelector('.sp-avatar-slot').replaceWith(buildAvatar(name, 'sp-avatar'));
+    item.addEventListener('pointerdown', e => e.preventDefault());
+    item.addEventListener('click', () => {
+      closeSearchPanel();
+      document.getElementById('searchInput').blur();
+      openStation(s.id);
+    });
+    frag.appendChild(item);
+  });
+  container.appendChild(frag);
+}
+
+// Search input handlers
 let _searchTimer = null;
+
 document.getElementById('searchInput').addEventListener('input', e => {
   searchQuery = e.target.value.trim();
+  const clearBtn = document.getElementById('searchClearBtn');
+  clearBtn.classList.toggle('visible', searchQuery.length > 0);
   clearTimeout(_searchTimer);
-  _searchTimer = setTimeout(renderList, 150);
+  _searchTimer = setTimeout(() => {
+    renderList();
+    if (_spOpen) renderSearchPanel();
+    else openSearchPanel();
+  }, 120);
 });
+
 document.getElementById('searchInput').addEventListener('focus', () => {
-  if (isMobile()) {
-    closePanel();
-    openMobileSidebar();
-  }
+  clearTimeout(_spBlurTimer);
+  openSearchPanel();
 });
+
 document.getElementById('searchInput').addEventListener('blur', () => {
-  if (isMobile()) {
-    document.querySelector('.sidebar').style.height = '';
-    if (!searchQuery) closeMobileSidebar();
+  _spBlurTimer = setTimeout(() => {
+    closeSearchPanel();
+  }, 180);
+});
+
+document.getElementById('searchClearBtn').addEventListener('click', () => {
+  const input = document.getElementById('searchInput');
+  input.value = '';
+  searchQuery = '';
+  document.getElementById('searchClearBtn').classList.remove('visible');
+  renderList();
+  closeSearchPanel();
+  input.blur();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && _spOpen) {
+    closeSearchPanel();
+    document.getElementById('searchInput').blur();
   }
 });
 
-// Подстраиваем сайдбар под высоту видимой области (выше клавиатуры)
+// Подстраиваем сайдбар и поисковую панель под высоту видимой области (выше клавиатуры)
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
-    const sidebar = document.querySelector('.sidebar');
-    if (!sidebar || !isMobile()) return;
+    if (!isMobile()) return;
     const vvH = window.visualViewport.height;
     const headerH = document.querySelector('header').offsetHeight;
     const available = vvH - headerH;
-    if (available < window.innerHeight * 0.5) {
-      // клавиатура открыта — ограничиваем высоту сайдбара
-      sidebar.style.height = Math.max(available, 180) + 'px';
-      sidebar.style.bottom = '0';
-    } else {
-      sidebar.style.height = '';
+    const keyboardOpen = available < window.innerHeight * 0.65;
+
+    // Sidebar
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+      if (keyboardOpen) {
+        sidebar.style.height = Math.max(available, 150) + 'px';
+        sidebar.style.bottom = '0';
+      } else {
+        sidebar.style.height = '';
+        sidebar.style.bottom = '';
+      }
+    }
+
+    // Search panel
+    const sp = document.getElementById('searchPanel');
+    if (sp && _spOpen) {
+      if (keyboardOpen) {
+        sp.style.maxHeight = Math.max(available - 2, 120) + 'px';
+        const listEl = document.getElementById('spList');
+        if (listEl) listEl.style.maxHeight = Math.max(available - 36, 80) + 'px';
+      } else {
+        sp.style.maxHeight = '';
+        const listEl = document.getElementById('spList');
+        if (listEl) listEl.style.maxHeight = '';
+      }
     }
   });
 }
@@ -2126,7 +2552,8 @@ function makeDraggable(handleEl, panelEl, closeCallback, scrollEl) {
     snapTo(getNearestSnap(lastDY, velocity));
   }
 
-  handleEl.addEventListener('touchstart', (e) => {
+  panelEl.addEventListener('touchstart', (e) => {
+    if (scrollEl && scrollEl.contains(e.target)) return; // scroll-area handles itself
     currentOffset = getPanelOffset();
     startY = e.touches[0].clientY;
     prevY = startY; prevTime = Date.now();
