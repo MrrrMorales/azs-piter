@@ -243,18 +243,9 @@ def run():
         osm_stations = json.load(f)
     print(f'Загружено {len(osm_stations)} OSM-станций')
 
-    # Загрузить существующий файл цен (чтобы не терять данные от других источников)
-    existing = {}
-    if os.path.exists(OUTPUT_FILE):
-        try:
-            with open(OUTPUT_FILE, 'r', encoding='utf-8') as f:
-                existing = json.load(f).get('stations', {})
-            print(f'Загружено {len(existing)} существующих записей из {OUTPUT_FILE}')
-        except Exception:
-            pass
-
-    # Собираем цены из всех источников
-    all_prices = dict(existing)  # начинаем с существующих
+    # Собираем цены из всех источников — каждый раз с нуля,
+    # чтобы не накапливались устаревшие или ошибочные матчи
+    all_prices = {}
 
     print()
     for fetcher_fn in [fetch_gpn, fetch_lukoil, fetch_rosneft, fetch_ptk]:
