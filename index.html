@@ -1948,8 +1948,12 @@ function openStation(id) {
   ];
 
   // Если OSM знает ассортимент — показываем только подтверждённые виды топлива
+  const sp = stationPrices[String(s.id)];
   const osmFuels = (s.fuels && s.fuels.length) ? new Set(s.fuels) : null;
+  // station_prices.json может содержать поле fuels — ассортимент из официального API бренда
+  const spFuels = (sp && sp.fuels && sp.fuels.length) ? new Set(sp.fuels) : null;
   const visibleFuelData = fuelData.filter(f => {
+    if (spFuels) return spFuels.has(f.key);   // ассортимент из API бренда — приоритет
     if (!osmFuels) return true;
     if (stPrices._source !== 'network' && stPrices[f.key] != null) return true;
     return osmFuels.has(f.key);
@@ -1989,7 +1993,6 @@ function openStation(id) {
   // Метка источника цен
   let sourceHtml = '';
   if (hasLivePrices) {
-    const sp = stationPrices[String(s.id)];
     const upd = sp && sp.updated ? sp.updated : '';
     const srcName = formatSourceName(stPrices._source);
     sourceHtml = `<div style="grid-column:1/-1;display:flex;align-items:center;gap:6px;margin-top:6px">
@@ -1999,9 +2002,12 @@ function openStation(id) {
   } else if (hasNetworkPrices) {
     const brand = (s.brand || s.name || '').toLowerCase();
     const isGpn = brand.includes('газпром');
+    const isLukoil = sp && sp.fuels;  // Лукойл с данными об ассортименте из API
     const networkNote = isGpn
       ? '⚠ Индивидуальные цены не получены · средняя по сети'
-      : `⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}`;
+      : isLukoil
+        ? `ℹ Ассортимент — официальный API · цены средние по сети${pricesUpdated ? ' · ' + pricesUpdated : ''}`
+        : `⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}`;
     sourceHtml = `<div style="grid-column:1/-1;margin-top:6px;font-size:10px;color:var(--muted)">
       ${networkNote}
     </div>`;

@@ -316,10 +316,163 @@ def fetch_tatneft(osm_stations):
 
 
 # ─────────────────────────────────────────────────────────────────
-# ЗАГЛУШКИ ДЛЯ БУДУЩИХ ИСТОЧНИКОВ
+# ИСТОЧНИК 3: Лукойл
+#
+# Исследование (апрель 2026):
+#   ✅ GetSearchObjects?form=gasStation  — все станции с координатами, БЕЗ цен
+#   ✅ GetCountryDependentSearchObjectData?form=gasStation&country=RU
+#      — битмаска доступных видов топлива для каждой станции (бесплатно)
+#   🔒 Мобильный бэкенд: mobile-ap.licard.com / api.licard.com
+#      — цены есть, но требует Bearer token из мобильного приложения
+#   💰 Коммерческий API: api.omt-consult.ru/v2/stations (benzup.ru) — платный
+#
+# Текущая реализация: используем бесплатные API для определения ассортимента
+# топлива на каждой станции. Цены — средние по сети из prices.json.
+# Если LUKOIL_TOKEN появится — раскомментировать блок ниже.
 # ─────────────────────────────────────────────────────────────────
+LUKOIL_BASE = 'https://auto.lukoil.ru'
+# LUKOIL_MOBILE_API = 'https://api.licard.com'  # Bearer token from mobile app
+# LUKOIL_TOKEN = os.environ.get('LUKOIL_TOKEN', '')
+
+# FuelId → наш ключ; только основные виды топлива для России
+LUKOIL_FUEL_ID_MAP = {
+    0: '100', 1: '100',           # АИ 100 ЭКТО / ЕВРО
+    3: '92',  4: '92',            # АИ 92 ЭКТО / ЕВРО
+    6: '95',  7: '95',  8: '95',  # АИ 95 ЭКТО, ECTO PLUS, ЕВРО
+    9: '100', 10: '100',          # АИ 98 (→ 100 в нашей схеме)
+    16: 'dt', 17: 'dt', 18: 'dt', 25: 'dt',  # ДИЗЕЛЬ всех видов
+}
+
+
+def lukoil_get_stations():
+    """Все станции Лукойл с координатами (без цен)."""
+    try:
+        r = SESSION.get(f'{LUKOIL_BASE}/api/cartography/GetSearchObjects?form=gasStation', timeout=30)
+        r.raise_for_status()
+        return r.json().get('GasStations', [])
+    except Exception as e:
+        print(f'  [!] GetSearchObjects: {e}')
+        return []
+
+
+def lukoil_get_fuel_availability():
+    """
+    Возвращает {GasStationId: set_of_fuel_keys} для всех станций.
+    Использует GetCountryDependentSearchObjectData?country=RU.
+    """
+    try:
+        r = SESSION.get(
+            f'{LUKOIL_BASE}/api/cartography/GetCountryDependentSearchObjectData'
+            '?form=gasStation&country=RU',
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f'  [!] GetCountryDependentSearchObjectData: {e}')
+        return {}
+
+    # Упорядоченный список FuelId-ов, соответствующих битам битмаски (RU)
+    fuel_class_order = data.get('FuelClasses', [])
+    availability = {}
+    for st in data.get('GasStations', []):
+        sid = st['GasStationId']
+        fuels = set()
+        for i, bitmask in enumerate(st.get('FuelClasses', [])):
+            base = i * 32
+            for bit in range(32):
+                if bitmask & (1 << bit):
+                    pos = base + bit
+                    if pos < len(fuel_class_order):
+                        fuel_id = fuel_class_order[pos]
+                        key = LUKOIL_FUEL_ID_MAP.get(fuel_id)
+                        if key:
+                            fuels.add(key)
+        availability[sid] = fuels
+    return availability
+
+
 def fetch_lukoil(osm_stations):
-    return {}
+    """
+    Лукойл: бесплатные API дают координаты + ассортимент топлива на каждой станции.
+    Цены — средние по сети из prices.json (нет бесплатного per-station API).
+
+    Итог: {osm_id: {'source':'network', 'fuels':[...], '92':..., ...}}
+    UI использует поле 'fuels' чтобы скрыть марки, которых нет на данной АЗС.
+    """
+    print('[Лукойл] Получаем список станций...')
+    all_st = lukoil_get_stations()
+    spb_st = [
+        s for s in all_st
+        if LAT_MIN <= s.get('Latitude', 0) <= LAT_MAX
+        and LON_MIN <= s.get('Longitude', 0) <= LON_MAX
+    ]
+    print(f'  Найдено {len(spb_st)} станций Лукойл в регионе СПб/Ленобласть')
+
+    print('[Лукойл] Получаем ассортимент топлива...')
+    availability = lukoil_get_fuel_availability()
+    print(f'  Данные о топливе: {len(availability)} станций')
+
+    # Средние цены Лукойл из prices.json
+    network_prices = {}
+    try:
+        with open('prices.json', 'r', encoding='utf-8') as f:
+            pd = json.load(f)
+        for brand_key, prices in pd.get('prices', {}).items():
+            if 'луко' in brand_key.lower():
+                network_prices = prices
+                break
+    except Exception:
+        pass
+
+    lukoil_keywords = ('лукойл', 'lukoil')
+    lukoil_osm = [
+        s for s in osm_stations
+        if any(kw in (s.get('brand') or '').lower() or kw in (s.get('name') or '').lower()
+               for kw in lukoil_keywords)
+    ]
+    print(f'[Лукойл] Лукойл-станций в OSM для матчинга: {len(lukoil_osm)}')
+
+    results = {}
+    matched = 0
+    no_match = 0
+    updated_ts = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
+
+    for st in spb_st:
+        lat = st.get('Latitude', 0)
+        lon = st.get('Longitude', 0)
+        sid = st['GasStationId']
+        addr = st.get('Street', '') or st.get('DisplayName', '')
+
+        fuels_available = availability.get(sid, set())
+        if not fuels_available:
+            # Нет данных об ассортименте — пропускаем, чтобы не мешать fallback
+            continue
+
+        osm, dist = find_nearest(lukoil_osm, lat, lon)
+        if not osm:
+            no_match += 1
+            continue
+
+        fuel_list = sorted(fuels_available, key=lambda k: ['92', '95', '100', 'dt'].index(k) if k in ['92', '95', '100', 'dt'] else 99)
+        entry = {
+            'source': 'network',  # цены средние по сети, не per-station
+            'updated': updated_ts,
+            'fuels': fuel_list,   # ассортимент топлива конкретной АЗС
+            '92':  network_prices.get('92')  if '92'  in fuels_available else None,
+            '95':  network_prices.get('95')  if '95'  in fuels_available else None,
+            '100': network_prices.get('100') if '100' in fuels_available else None,
+            'dt':  network_prices.get('dt')  if 'dt'  in fuels_available else None,
+        }
+        results[str(osm['id'])] = entry
+        matched += 1
+        print(f'  ✓ id={sid} ({addr}) -> OSM#{osm["id"]} ({dist*1000:.0f}м) | {fuel_list}')
+
+    print(f'[Лукойл] Готово: совпало {matched}, не нашлось OSM {no_match}')
+    if not network_prices:
+        print('  [!] prices.json для Лукойл не найден — цены будут None')
+    return results
+
 
 def fetch_rosneft(osm_stations):
     return {}
