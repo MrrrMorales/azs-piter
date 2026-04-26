@@ -15,7 +15,7 @@ function Log($msg) {
     Write-Host $line
 }
 
-Log "=== Запуск обновления цен ГПН ==="
+Log "=== Запуск обновления цен ГПН + Татнефть ==="
 
 Set-Location $ProjectDir
 
@@ -45,7 +45,7 @@ $diff = git -C $ProjectDir diff --name-only station_prices.json
 if ($diff) {
     $timestamp = Get-Date -Format 'dd.MM.yyyy HH:mm'
     git -C $ProjectDir add station_prices.json
-    git -C $ProjectDir commit -m "Автообновление цен ГПН $timestamp (локально)"
+    git -C $ProjectDir commit -m "Автообновление цен $timestamp (локально)"
     git -C $ProjectDir pull --rebase -X ours
     git -C $ProjectDir push
     Log "Запушено: station_prices.json обновлён"

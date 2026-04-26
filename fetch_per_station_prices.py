@@ -215,18 +215,116 @@ def fetch_gpn(osm_stations):
 
 
 # ─────────────────────────────────────────────────────────────────
+# ИСТОЧНИК 2: Татнефть (api.gs.tatneft.ru)
+# ─────────────────────────────────────────────────────────────────
+TATNEFT_API = 'https://api.gs.tatneft.ru'
+TATNEFT_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+    'Referer': 'https://azs.tatneft.ru/',
+    'Origin': 'https://azs.tatneft.ru',
+    'Accept-Language': 'ru-RU,ru;q=0.9',
+}
+
+# fuel_type_id → наш ключ; для каждого ключа приоритет: первый найденный wins
+# Правило: обычная марка приоритетнее Taneco (Taneco — premium, дороже)
+TATNEFT_FUEL_PRIORITY = {
+    '92':  [36, 29],        # 36=АИ-92, 29=АИ-92 Taneco
+    '95':  [34, 74],        # 34=АИ-95, 74=АИ-95 Taneco
+    '100': [82],            # 82=АИ-100
+    'dt':  [30, 46, 83],    # 30=ДТ, 46=ДТ Taneco, 83=ДТ Арктика Taneco
+}
+
+
+def parse_tatneft_prices(fuel_list):
+    """Из fuel-массива Татнефти собирает {92, 95, 100, dt}."""
+    by_id = {f['fuel_type_id']: f['price'] for f in fuel_list if f.get('price')}
+    prices = {}
+    for key, ids in TATNEFT_FUEL_PRIORITY.items():
+        for fid in ids:
+            if fid in by_id:
+                prices[key] = round(float(by_id[fid]), 2)
+                break
+    return prices
+
+
+def fetch_tatneft(osm_stations):
+    """
+    Один запрос → все ~900 станций Татнефти.
+    Фильтрует по координатам СПб/Ленобласть, матчит с OSM.
+    """
+    print('[Татнефть] Получаем список станций...')
+    try:
+        r = SESSION.get(
+            f'{TATNEFT_API}/api/v2/azs/?limit=9999',
+            headers=TATNEFT_HEADERS,
+            timeout=30,
+        )
+        r.raise_for_status()
+        all_st = r.json().get('data', [])
+    except Exception as e:
+        print(f'  [!] Ошибка запроса: {e}')
+        return {}
+
+    spb_st = [
+        s for s in all_st
+        if LAT_MIN <= s.get('lat', 0) <= LAT_MAX and LON_MIN <= s.get('lon', 0) <= LON_MAX
+    ]
+    print(f'  Найдено {len(spb_st)} станций Татнефти в регионе СПб/Ленобласть')
+
+    tatneft_keywords = ('татнефть', 'tatneft')
+    tatneft_osm = [
+        s for s in osm_stations
+        if any(kw in (s.get('brand') or '').lower() or kw in (s.get('name') or '').lower()
+               for kw in tatneft_keywords)
+    ]
+    print(f'[Татнефть] Татнефть-станций в OSM для матчинга: {len(tatneft_osm)}')
+
+    results = {}
+    matched = 0
+    no_match = 0
+    updated_ts = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
+
+    for i, st in enumerate(spb_st, 1):
+        lat = st['lat']
+        lon = st['lon']
+        addr = st.get('address', '')
+
+        prices = parse_tatneft_prices(st.get('fuel', []))
+        if not prices:
+            print(f'  [{i}/{len(spb_st)}] id={st["id"]} ({addr}) — нет цен')
+            continue
+
+        osm, dist = find_nearest(tatneft_osm, lat, lon)
+        if osm:
+            results[str(osm['id'])] = {
+                'source': 'татнефть',
+                'updated': updated_ts,
+                '92':  prices.get('92'),
+                '95':  prices.get('95'),
+                '100': prices.get('100'),
+                'dt':  prices.get('dt'),
+            }
+            matched += 1
+            print(f'  [{i}/{len(spb_st)}] ✓ id={st["id"]} ({addr}) -> OSM#{osm["id"]} ({dist*1000:.0f}м) | 92={prices.get("92")} 95={prices.get("95")} 100={prices.get("100")} dt={prices.get("dt")}')
+        else:
+            no_match += 1
+            print(f'  [{i}/{len(spb_st)}] ? id={st["id"]} ({addr}) ({lat:.4f},{lon:.4f}) — OSM не найден')
+
+    print(f'[Татнефть] Готово: совпало {matched}, не нашлось OSM {no_match}')
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────
 # ЗАГЛУШКИ ДЛЯ БУДУЩИХ ИСТОЧНИКОВ
 # ─────────────────────────────────────────────────────────────────
 def fetch_lukoil(osm_stations):
-    # TODO: добавить как только найдём рабочий endpoint Лукойл
     return {}
 
 def fetch_rosneft(osm_stations):
-    # TODO: rosneft.ru endpoints закрыты, нужен другой подход
     return {}
 
 def fetch_ptk(osm_stations):
-    # TODO: ptk.ru недоступен
     return {}
 
 
@@ -248,7 +346,7 @@ def run():
     all_prices = {}
 
     print()
-    for fetcher_fn in [fetch_gpn, fetch_lukoil, fetch_rosneft, fetch_ptk]:
+    for fetcher_fn in [fetch_gpn, fetch_tatneft, fetch_lukoil, fetch_rosneft, fetch_ptk]:
         try:
             chunk = fetcher_fn(osm_stations)
             # Обновляем: новые данные перезаписывают старые для тех же станций
