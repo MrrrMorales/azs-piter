@@ -3,3 +3,11 @@ config.js
 .env
 __pycache__/
 *.pyc
+
+# Логи и временные файлы
+update_log.txt
+monitor_log.txt
+*_out.txt
+out.txt
+lukoil_scripts.js
+monitor_state.json

@@ -93,7 +93,11 @@ set JSONBIN_API_KEY=...
 
 ## Известные ограничения
 
-- Лукойл, Роснефть, ПТК — per-station цены не реализованы (заглушки в `fetch_per_station_prices.py`)
+- Роснефть, ПТК — per-station цены не реализованы (заглушки в `fetch_per_station_prices.py`)
+- Лукойл — цены через Яндекс Карты (Playwright): единые по СПб, применяются ко всем Лукойл-станциям OSM.
+  Источник: `fetch_lukoil_yandex()` в `fetch_per_station_prices.py`.
+  Требует: `pip install playwright && python -m playwright install chromium`.
+  Режим headless=False (Яндекс детектирует headless).
 - Словари брендов дублируются в 4 файлах — надо держать синхронизированными
 - Парсер запускается вручную, нет автоматического расписания
 
@@ -102,7 +106,7 @@ set JSONBIN_API_KEY=...
 Подробная документация: `D:\AZS.vault` (Obsidian vault)
 
 ## Obsidian Knowledge Vault
-Хранилище знаний: D:\AZS.vault
+Хранилище знаний: D:/AZS.vault
 ### При старте сессии
 Прочитай 00-home/index.md и текущие приоритеты.md.
 Если задача касается модуля — прочитай заметку из knowledge/.
