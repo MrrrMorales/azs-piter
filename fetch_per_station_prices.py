@@ -476,10 +476,9 @@ def fetch_lukoil(osm_stations):
 
 def fetch_lukoil_yandex(osm_stations):
     """
-    Лукойл: реальные цены с Яндекс Карт через Playwright.
-    Лукойл держит единые цены по СПб — применяем ко всем Лукойл-станциям OSM.
-    Требует: pip install playwright && python -m playwright install chromium
-    Режим headless=False (Яндекс детектирует headless).
+    Лукойл: per-station цены с Яндекс Карт через Playwright.
+    Собирает все страницы, матчит каждую станцию Яндекса к OSM по координатам.
+    Fallback на fetch_lukoil() если Playwright не установлен.
     """
     print('[Лукойл/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
     items = _yandex_playwright_search('ЛУКОЙЛ АЗС Санкт-Петербург')
@@ -491,13 +490,12 @@ def fetch_lukoil_yandex(osm_stations):
         print('  [!] Яндекс не вернул данных → fallback на fetch_lukoil()')
         return fetch_lukoil(osm_stations)
 
-    network_prices, ts_str = _extract_network_prices(items)
-    if not network_prices:
-        print('  [!] fuelInfo пуст → fallback')
-        return fetch_lukoil(osm_stations)
+    per_station = _extract_per_station_prices(items)
+    print(f'  [Яндекс] Позиций с ценами и координатами: {len(per_station)}')
 
-    if ts_str:
-        print(f'  [Яндекс] Цены актуальны на {ts_str}: {network_prices}')
+    if not per_station:
+        print('  [!] Нет per-station данных → fallback на fetch_lukoil()')
+        return fetch_lukoil(osm_stations)
 
     lukoil_keywords = ('лукойл', 'lukoil')
     lukoil_osm = [
@@ -505,22 +503,50 @@ def fetch_lukoil_yandex(osm_stations):
         if any(kw in (s.get('brand') or '').lower() or kw in (s.get('name') or '').lower()
                for kw in lukoil_keywords)
     ]
-    print(f'  [Яндекс] Применяем цены к {len(lukoil_osm)} Лукойл-станциям OSM')
+    print(f'  [Яндекс] Лукойл-станций в OSM: {len(lukoil_osm)}')
 
     updated_ts = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
     results = {}
-    for osm in lukoil_osm:
-        results[str(osm['id'])] = {
-            'source': 'яндекс',
-            'updated': updated_ts,
-            '92':         network_prices.get('92'),
-            '95':         network_prices.get('95'),
-            '95_premium': network_prices.get('95_premium'),
-            '100':        network_prices.get('100'),
-            'dt':         network_prices.get('dt'),
-        }
+    matched = 0
 
-    print(f'[Лукойл/Яндекс] Готово: {len(results)} станций')
+    for yandex_st in per_station:
+        osm, dist = find_nearest(lukoil_osm, yandex_st['lat'], yandex_st['lon'])
+        if osm:
+            osm_id = str(osm['id'])
+            if osm_id not in results:
+                p = yandex_st['prices']
+                results[osm_id] = {
+                    'source': 'яндекс',
+                    'updated': updated_ts,
+                    '92':         p.get('92'),
+                    '95':         p.get('95'),
+                    '95_premium': p.get('95_premium'),
+                    '100':        p.get('100'),
+                    'dt':         p.get('dt'),
+                }
+                matched += 1
+                print(f'  ✓ ({yandex_st["lat"]:.4f},{yandex_st["lon"]:.4f}) -> OSM#{osm["id"]} ({dist*1000:.0f}м) | {p}')
+
+    # Fallback для OSM-станций без совпадения: сетевая цена
+    unmatched = [s for s in lukoil_osm if str(s['id']) not in results]
+    if unmatched:
+        network_prices, ts_str = _extract_network_prices(items)
+        if network_prices:
+            if ts_str:
+                print(f'  [Яндекс] Сетевая цена на {ts_str}: {network_prices}')
+            for osm in unmatched:
+                results[str(osm['id'])] = {
+                    'source': 'яндекс',
+                    'updated': updated_ts,
+                    '92':         network_prices.get('92'),
+                    '95':         network_prices.get('95'),
+                    '95_premium': network_prices.get('95_premium'),
+                    '100':        network_prices.get('100'),
+                    'dt':         network_prices.get('dt'),
+                }
+            print(f'  Fallback (сетевая): {len(unmatched)} станций')
+
+    print(f'[Лукойл/Яндекс] Готово: per-station {matched}, fallback {len(unmatched)}, всего {len(results)}')
     return results
 
 
@@ -554,8 +580,8 @@ YANDEX_FUEL_MAP = {
 def _yandex_playwright_search(search_text):
     """
     Открывает Яндекс Карты через Playwright, ищет search_text и перехватывает
-    первый ответ /maps/api/search с fuelInfo.
-    Возвращает список items (или [] при ошибке).
+    ВСЕ страницы /maps/api/search с fuelInfo (прокрутка сайдбара).
+    Возвращает список всех items (или [] при ошибке, None если Playwright не установлен).
     """
     import asyncio
     try:
@@ -575,19 +601,34 @@ def _yandex_playwright_search(search_text):
                 "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
             )
             captured_items = []
+            seen_ids = set()
 
             async def on_response(response):
                 if '/maps/api/search' in response.url:
                     try:
                         text = await response.text()
-                        if 'fuelInfo' in text and not captured_items:
-                            import json as _json
-                            d = _json.loads(text)
-                            items = d.get('data', {}).get('items', [])
-                            captured_items.extend(items)
-                            total = d.get('data', {}).get('totalResultCount', 0)
-                            fuel_c = sum(1 for it in items if isinstance(it, dict) and it.get('fuelInfo'))
-                            print(f'  [Яндекс] {len(items)} из {total}, с ценами: {fuel_c}')
+                        if 'fuelInfo' not in text:
+                            return
+                        import json as _json
+                        d = _json.loads(text)
+                        items = d.get('data', {}).get('items', [])
+                        total = d.get('data', {}).get('totalResultCount', 0)
+                        new_count = 0
+                        for it in items:
+                            if not isinstance(it, dict):
+                                continue
+                            iid = it.get('id') or it.get('uri') or it.get('permalink')
+                            if iid:
+                                if iid not in seen_ids:
+                                    seen_ids.add(iid)
+                                    captured_items.append(it)
+                                    new_count += 1
+                            else:
+                                captured_items.append(it)
+                                new_count += 1
+                        fuel_c = sum(1 for it in items if isinstance(it, dict) and it.get('fuelInfo'))
+                        if new_count:
+                            print(f'  [Яндекс] +{new_count} новых (с ценами: {fuel_c}), всего: {len(captured_items)}/{total}')
                     except Exception:
                         pass
 
@@ -611,7 +652,33 @@ def _yandex_playwright_search(search_text):
                         f'https://yandex.ru/maps/?text={quote(search_text)}&type=biz',
                         wait_until='domcontentloaded', timeout=60000
                     )
-                await asyncio.sleep(20)
+                await asyncio.sleep(12)  # ждём первую страницу
+
+                # Прокручиваем сайдбар для загрузки всех страниц
+                prev_count = 0
+                for _ in range(20):
+                    await page.evaluate("""() => {
+                        const selectors = [
+                            '.search-list-view__list',
+                            '.card-list-view',
+                            '.sidebar-view__panel',
+                            '[class*="search-list"]',
+                            '[class*="results"]',
+                        ];
+                        for (const sel of selectors) {
+                            const el = document.querySelector(sel);
+                            if (el && el.scrollHeight > el.clientHeight) {
+                                el.scrollTop = el.scrollHeight;
+                                return;
+                            }
+                        }
+                        window.scrollTo(0, document.body.scrollHeight);
+                    }""")
+                    await asyncio.sleep(2)
+                    if len(captured_items) == prev_count:
+                        break
+                    prev_count = len(captured_items)
+
             except Exception as e:
                 print(f'  [!] Playwright ошибка: {e}')
             finally:
@@ -650,10 +717,55 @@ def _extract_network_prices(items):
     return {}, None
 
 
+def _extract_per_station_prices(items):
+    """
+    Из всех items Яндекс Карт извлекает per-station цены с координатами.
+    Поддерживает GeoJSON (coordinates: [lon, lat]) и {lat, lon} форматы.
+    Возвращает [{lat, lon, prices}].
+    """
+    result = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        fi = item.get('fuelInfo')
+        if not fi or not fi.get('items'):
+            continue
+
+        lat, lon = None, None
+        geo = item.get('geometry')
+        if isinstance(geo, dict):
+            coords = geo.get('coordinates')
+            if coords and len(coords) >= 2:
+                lon, lat = float(coords[0]), float(coords[1])  # GeoJSON: [lon, lat]
+        if lat is None:
+            pt = item.get('point')
+            if isinstance(pt, dict):
+                _lat = pt.get('lat') or pt.get('latitude')
+                _lon = pt.get('lon') or pt.get('longitude')
+                if _lat and _lon:
+                    lat, lon = float(_lat), float(_lon)
+
+        if lat is None or lon is None:
+            continue
+
+        prices = {}
+        for p in fi['items']:
+            if 'price' not in p:
+                continue
+            key = YANDEX_FUEL_MAP.get(p['name'].lower().strip())
+            if key and key not in prices:
+                prices[key] = round(float(p['price']['value']), 2)
+
+        if prices:
+            result.append({'lat': lat, 'lon': lon, 'prices': prices})
+
+    return result
+
+
 def fetch_rosneft_yandex(osm_stations):
     """
-    Роснефть: цены с Яндекс Карт через Playwright.
-    Роснефть держит единые цены по СПб — применяем ко всем Роснефть-станциям OSM.
+    Роснефть: per-station цены с Яндекс Карт через Playwright.
+    Собирает все страницы, матчит каждую станцию Яндекса к OSM по координатам.
     """
     print('[Роснефть/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
     items = _yandex_playwright_search('Роснефть АЗС Санкт-Петербург')
@@ -665,13 +777,12 @@ def fetch_rosneft_yandex(osm_stations):
         print('  [!] Яндекс не вернул данных → пропускаем Роснефть')
         return {}
 
-    network_prices, ts_str = _extract_network_prices(items)
-    if not network_prices:
-        print('  [!] fuelInfo пуст → пропускаем Роснефть')
-        return {}
+    per_station = _extract_per_station_prices(items)
+    print(f'  [Яндекс] Позиций с ценами и координатами: {len(per_station)}')
 
-    if ts_str:
-        print(f'  [Яндекс] Цены актуальны на {ts_str}: {network_prices}')
+    if not per_station:
+        print('  [!] Нет per-station данных → пропускаем Роснефть')
+        return {}
 
     rosneft_keywords = ('роснефть', 'rosneft')
     rosneft_osm = [
@@ -679,22 +790,50 @@ def fetch_rosneft_yandex(osm_stations):
         if any(kw in (s.get('brand') or '').lower() or kw in (s.get('name') or '').lower()
                for kw in rosneft_keywords)
     ]
-    print(f'  [Яндекс] Применяем цены к {len(rosneft_osm)} Роснефть-станциям OSM')
+    print(f'  [Яндекс] Роснефть-станций в OSM: {len(rosneft_osm)}')
 
     updated_ts = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
     results = {}
-    for osm in rosneft_osm:
-        results[str(osm['id'])] = {
-            'source': 'яндекс',
-            'updated': updated_ts,
-            '92':         network_prices.get('92'),
-            '95':         network_prices.get('95'),
-            '95_premium': network_prices.get('95_premium'),
-            '100':        network_prices.get('100'),
-            'dt':         network_prices.get('dt'),
-        }
+    matched = 0
 
-    print(f'[Роснефть/Яндекс] Готово: {len(results)} станций')
+    for yandex_st in per_station:
+        osm, dist = find_nearest(rosneft_osm, yandex_st['lat'], yandex_st['lon'])
+        if osm:
+            osm_id = str(osm['id'])
+            if osm_id not in results:
+                p = yandex_st['prices']
+                results[osm_id] = {
+                    'source': 'яндекс',
+                    'updated': updated_ts,
+                    '92':         p.get('92'),
+                    '95':         p.get('95'),
+                    '95_premium': p.get('95_premium'),
+                    '100':        p.get('100'),
+                    'dt':         p.get('dt'),
+                }
+                matched += 1
+                print(f'  ✓ ({yandex_st["lat"]:.4f},{yandex_st["lon"]:.4f}) -> OSM#{osm["id"]} ({dist*1000:.0f}м) | {p}')
+
+    # Fallback для OSM-станций без совпадения: сетевая цена
+    unmatched = [s for s in rosneft_osm if str(s['id']) not in results]
+    if unmatched:
+        network_prices, ts_str = _extract_network_prices(items)
+        if network_prices:
+            if ts_str:
+                print(f'  [Яндекс] Сетевая цена на {ts_str}: {network_prices}')
+            for osm in unmatched:
+                results[str(osm['id'])] = {
+                    'source': 'яндекс',
+                    'updated': updated_ts,
+                    '92':         network_prices.get('92'),
+                    '95':         network_prices.get('95'),
+                    '95_premium': network_prices.get('95_premium'),
+                    '100':        network_prices.get('100'),
+                    'dt':         network_prices.get('dt'),
+                }
+            print(f'  Fallback (сетевая): {len(unmatched)} станций')
+
+    print(f'[Роснефть/Яндекс] Готово: per-station {matched}, fallback {len(unmatched)}, всего {len(results)}')
     return results
 
 
