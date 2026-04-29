@@ -477,136 +477,28 @@ def fetch_lukoil(osm_stations):
 def fetch_lukoil_yandex(osm_stations):
     """
     Лукойл: реальные цены с Яндекс Карт через Playwright.
-    Поскольку Лукойл держит единые цены по СПб, применяем их ко всем
-    Лукойл-станциям из OSM.
-
+    Лукойл держит единые цены по СПб — применяем ко всем Лукойл-станциям OSM.
     Требует: pip install playwright && python -m playwright install chromium
-    Требует запуск с GUI (headless=False — Яндекс блокирует headless).
+    Режим headless=False (Яндекс детектирует headless).
     """
-    import asyncio, subprocess, sys
+    print('[Лукойл/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
+    items = _yandex_playwright_search('ЛУКОЙЛ АЗС Санкт-Петербург')
 
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
+    if items is None:
         print('[Лукойл/Яндекс] Playwright не установлен → fallback на fetch_lukoil()')
         return fetch_lukoil(osm_stations)
-
-    print('[Лукойл/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
-
-    async def _run():
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-blink-features=AutomationControlled']
-            )
-            ctx = await browser.new_context(locale='ru-RU', viewport={'width': 1366, 'height': 900})
-            page = await ctx.new_page()
-            await page.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-            )
-
-            csrf_token = None
-            captured_items = []
-
-            async def on_request(request):
-                nonlocal csrf_token
-                url = request.url
-                if '/maps/api/search' in url and 'csrfToken' in url and not csrf_token:
-                    from urllib.parse import urlparse, parse_qs
-                    params = parse_qs(urlparse(url).query)
-                    token = params.get('csrfToken', [''])[0]
-                    if len(token) > 20:
-                        csrf_token = token
-
-            async def on_response(response):
-                url = response.url
-                if '/maps/api/search' in url:
-                    try:
-                        text = await response.text()
-                        if 'fuelInfo' in text and not captured_items:
-                            import json as _json
-                            d = _json.loads(text)
-                            items = d.get('data', {}).get('items', [])
-                            captured_items.extend(items)
-                            total = d.get('data', {}).get('totalResultCount', 0)
-                            fuel_c = sum(1 for it in items if isinstance(it, dict) and it.get('fuelInfo'))
-                            print(f'  [Яндекс] {len(items)} из {total}, с ценами: {fuel_c}')
-                    except Exception:
-                        pass
-
-            page.on('request', on_request)
-            page.on('response', on_response)
-
-            try:
-                await page.goto('https://yandex.ru/maps/', wait_until='domcontentloaded', timeout=60000)
-                await asyncio.sleep(3)
-
-                try:
-                    inp = await page.wait_for_selector(
-                        'input[class*="input"], [class*="search"] input, input[type="text"]',
-                        timeout=10000
-                    )
-                    await inp.click()
-                    await asyncio.sleep(0.5)
-                    await inp.fill('ЛУКОЙЛ АЗС Санкт-Петербург')
-                    await asyncio.sleep(0.3)
-                    await page.keyboard.press('Enter')
-                except Exception:
-                    await page.goto('https://yandex.ru/maps/?text=ЛУКОЙЛ%20АЗС%20Санкт-Петербург&type=biz',
-                                   wait_until='domcontentloaded', timeout=60000)
-
-                await asyncio.sleep(20)
-            except Exception as e:
-                print(f'  [!] Playwright ошибка: {e}')
-            finally:
-                await browser.close()
-
-            return captured_items
-
-    try:
-        items = asyncio.run(_run())
-    except Exception as e:
-        print(f'  [!] asyncio.run ошибка: {e}')
-        return fetch_lukoil(osm_stations)
-
     if not items:
         print('  [!] Яндекс не вернул данных → fallback на fetch_lukoil()')
         return fetch_lukoil(osm_stations)
 
-    # Маппинг имён Яндекса на наши ключи
-    YANDEX_FUEL_MAP = {
-        'аи 92':  '92', 'аи 92+':  '92', 'аи-92':  '92', 'аи-92+':  '92',
-        'аи 95':  '95', 'аи-95':   '95',
-        'аи 95+': '95_premium', 'аи-95+': '95_premium',
-        'аи 100': '100', 'аи-100': '100',
-        'дт+': 'dt', 'дт': 'dt', 'diesel': 'dt',
-    }
-
-    # Извлекаем цены из первой попавшейся станции с fuelInfo (они одинаковые)
-    network_prices = {}
-    fuel_timestamp = None
-    for item in items:
-        fi = item.get('fuelInfo') if isinstance(item, dict) else None
-        if fi and fi.get('items'):
-            fuel_timestamp = fi.get('timestamp')
-            for p in fi['items']:
-                if 'price' not in p:
-                    continue
-                key = YANDEX_FUEL_MAP.get(p['name'].lower().strip())
-                if key and key not in network_prices:
-                    network_prices[key] = round(float(p['price']['value']), 2)
-            break
-
+    network_prices, ts_str = _extract_network_prices(items)
     if not network_prices:
         print('  [!] fuelInfo пуст → fallback')
         return fetch_lukoil(osm_stations)
 
-    if fuel_timestamp:
-        import datetime as _dt
-        ts_str = _dt.datetime.fromtimestamp(fuel_timestamp).strftime('%d.%m.%Y')
+    if ts_str:
         print(f'  [Яндекс] Цены актуальны на {ts_str}: {network_prices}')
 
-    # Применяем ко всем Лукойл-станциям OSM
     lukoil_keywords = ('лукойл', 'lukoil')
     lukoil_osm = [
         s for s in osm_stations
@@ -621,19 +513,190 @@ def fetch_lukoil_yandex(osm_stations):
         results[str(osm['id'])] = {
             'source': 'яндекс',
             'updated': updated_ts,
-            '92':  network_prices.get('92'),
-            '95':  network_prices.get('95'),
+            '92':         network_prices.get('92'),
+            '95':         network_prices.get('95'),
             '95_premium': network_prices.get('95_premium'),
-            '100': network_prices.get('100'),
-            'dt':  network_prices.get('dt'),
+            '100':        network_prices.get('100'),
+            'dt':         network_prices.get('dt'),
         }
 
     print(f'[Лукойл/Яндекс] Готово: {len(results)} станций')
     return results
 
 
-def fetch_rosneft(osm_stations):
-    return {}
+# ─────────────────────────────────────────────────────────────────
+# ИСТОЧНИК 4: Роснефть
+#
+# Исследование (апрель 2026):
+#   🔒 rosneft-azs.ru/api/v*/stations — API существует, но требует
+#      авторизованный токен мобильного приложения (ошибка 516 без него).
+#
+# Текущая реализация: Playwright + Яндекс Карты, аналогично Лукойлу.
+# Роснефть держит единые цены по СПб → применяем ко всем Роснефть-станциям OSM.
+# Требует: pip install playwright && python -m playwright install chromium
+# Режим headless=False (Яндекс детектирует headless).
+# ─────────────────────────────────────────────────────────────────
+
+# Маппинг яндексовых названий топлива → наши ключи (общий для всех Яндекс-источников)
+YANDEX_FUEL_MAP = {
+    'аи 92':      '92',          'аи 92+':     '92',
+    'аи-92':      '92',          'аи-92+':     '92',
+    'аи 95':      '95',          'аи-95':      '95',
+    'аи 95+':     '95_premium',  'аи-95+':     '95_premium',
+    'аи 100':     '100',         'аи-100':     '100',
+    'pulsar 92':  '92',          'pulsar 95':  '95',
+    'pulsar 95+': '95_premium',  'pulsar 100': '100',
+    'дт':         'dt',          'дт+':        'dt',
+    'diesel':     'dt',
+}
+
+
+def _yandex_playwright_search(search_text):
+    """
+    Открывает Яндекс Карты через Playwright, ищет search_text и перехватывает
+    первый ответ /maps/api/search с fuelInfo.
+    Возвращает список items (или [] при ошибке).
+    """
+    import asyncio
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return None  # сигнал: Playwright не установлен
+
+    async def _run():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=False,
+                args=['--no-sandbox', '--disable-blink-features=AutomationControlled']
+            )
+            ctx = await browser.new_context(locale='ru-RU', viewport={'width': 1366, 'height': 900})
+            page = await ctx.new_page()
+            await page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            )
+            captured_items = []
+
+            async def on_response(response):
+                if '/maps/api/search' in response.url:
+                    try:
+                        text = await response.text()
+                        if 'fuelInfo' in text and not captured_items:
+                            import json as _json
+                            d = _json.loads(text)
+                            items = d.get('data', {}).get('items', [])
+                            captured_items.extend(items)
+                            total = d.get('data', {}).get('totalResultCount', 0)
+                            fuel_c = sum(1 for it in items if isinstance(it, dict) and it.get('fuelInfo'))
+                            print(f'  [Яндекс] {len(items)} из {total}, с ценами: {fuel_c}')
+                    except Exception:
+                        pass
+
+            page.on('response', on_response)
+            try:
+                await page.goto('https://yandex.ru/maps/', wait_until='domcontentloaded', timeout=60000)
+                await asyncio.sleep(3)
+                try:
+                    inp = await page.wait_for_selector(
+                        'input[class*="input"], [class*="search"] input, input[type="text"]',
+                        timeout=10000
+                    )
+                    await inp.click()
+                    await asyncio.sleep(0.5)
+                    await inp.fill(search_text)
+                    await asyncio.sleep(0.3)
+                    await page.keyboard.press('Enter')
+                except Exception:
+                    from urllib.parse import quote
+                    await page.goto(
+                        f'https://yandex.ru/maps/?text={quote(search_text)}&type=biz',
+                        wait_until='domcontentloaded', timeout=60000
+                    )
+                await asyncio.sleep(20)
+            except Exception as e:
+                print(f'  [!] Playwright ошибка: {e}')
+            finally:
+                await browser.close()
+            return captured_items
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f'  [!] asyncio.run ошибка: {e}')
+        return []
+
+
+def _extract_network_prices(items):
+    """
+    Из списка items Яндекс Карт извлекает цены из первой станции с fuelInfo.
+    Возвращает (prices_dict, timestamp_str | None).
+    """
+    for item in items:
+        fi = item.get('fuelInfo') if isinstance(item, dict) else None
+        if fi and fi.get('items'):
+            ts = fi.get('timestamp')
+            prices = {}
+            for p in fi['items']:
+                if 'price' not in p:
+                    continue
+                key = YANDEX_FUEL_MAP.get(p['name'].lower().strip())
+                if key and key not in prices:
+                    prices[key] = round(float(p['price']['value']), 2)
+            if prices:
+                ts_str = None
+                if ts:
+                    import datetime as _dt
+                    ts_str = _dt.datetime.fromtimestamp(ts).strftime('%d.%m.%Y')
+                return prices, ts_str
+    return {}, None
+
+
+def fetch_rosneft_yandex(osm_stations):
+    """
+    Роснефть: цены с Яндекс Карт через Playwright.
+    Роснефть держит единые цены по СПб — применяем ко всем Роснефть-станциям OSM.
+    """
+    print('[Роснефть/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
+    items = _yandex_playwright_search('Роснефть АЗС Санкт-Петербург')
+
+    if items is None:
+        print('[Роснефть/Яндекс] Playwright не установлен → пропускаем Роснефть')
+        return {}
+    if not items:
+        print('  [!] Яндекс не вернул данных → пропускаем Роснефть')
+        return {}
+
+    network_prices, ts_str = _extract_network_prices(items)
+    if not network_prices:
+        print('  [!] fuelInfo пуст → пропускаем Роснефть')
+        return {}
+
+    if ts_str:
+        print(f'  [Яндекс] Цены актуальны на {ts_str}: {network_prices}')
+
+    rosneft_keywords = ('роснефть', 'rosneft')
+    rosneft_osm = [
+        s for s in osm_stations
+        if any(kw in (s.get('brand') or '').lower() or kw in (s.get('name') or '').lower()
+               for kw in rosneft_keywords)
+    ]
+    print(f'  [Яндекс] Применяем цены к {len(rosneft_osm)} Роснефть-станциям OSM')
+
+    updated_ts = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
+    results = {}
+    for osm in rosneft_osm:
+        results[str(osm['id'])] = {
+            'source': 'яндекс',
+            'updated': updated_ts,
+            '92':         network_prices.get('92'),
+            '95':         network_prices.get('95'),
+            '95_premium': network_prices.get('95_premium'),
+            '100':        network_prices.get('100'),
+            'dt':         network_prices.get('dt'),
+        }
+
+    print(f'[Роснефть/Яндекс] Готово: {len(results)} станций')
+    return results
+
 
 def fetch_ptk(osm_stations):
     return {}
@@ -657,7 +720,7 @@ def run():
     all_prices = {}
 
     print()
-    for fetcher_fn in [fetch_gpn, fetch_tatneft, fetch_lukoil_yandex, fetch_rosneft, fetch_ptk]:
+    for fetcher_fn in [fetch_gpn, fetch_tatneft, fetch_lukoil_yandex, fetch_rosneft_yandex, fetch_ptk]:
         try:
             chunk = fetcher_fn(osm_stations)
             # Обновляем: новые данные перезаписывают старые для тех же станций

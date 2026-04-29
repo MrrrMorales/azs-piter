@@ -93,11 +93,12 @@ set JSONBIN_API_KEY=...
 
 ## Известные ограничения
 
-- Роснефть, ПТК — per-station цены не реализованы (заглушки в `fetch_per_station_prices.py`)
-- Лукойл — цены через Яндекс Карты (Playwright): единые по СПб, применяются ко всем Лукойл-станциям OSM.
-  Источник: `fetch_lukoil_yandex()` в `fetch_per_station_prices.py`.
+- ПТК — per-station цены не реализованы (заглушка `fetch_ptk` в `fetch_per_station_prices.py`)
+- Лукойл, Роснефть — цены через Яндекс Карты (Playwright): единые по СПб, применяются ко всем станциям OSM соответствующего бренда.
+  Источники: `fetch_lukoil_yandex()`, `fetch_rosneft_yandex()` в `fetch_per_station_prices.py`.
   Требует: `pip install playwright && python -m playwright install chromium`.
   Режим headless=False (Яндекс детектирует headless).
+  Роснефть API (rosneft-azs.ru/api/v*/stations) существует, но требует токен мобильного приложения (ошибка 516).
 - Словари брендов дублируются в 4 файлах — надо держать синхронизированными
 - Парсер запускается вручную, нет автоматического расписания
 

@@ -322,6 +322,26 @@
       letter-spacing: 0.5px; margin-left: 6px;
       vertical-align: middle;
     }
+    .badge-yandex {
+      font-size: 9px; font-weight: 700;
+      background: #f59e0b22; color: #f59e0b;
+      border: 1px solid #f59e0b55;
+      border-radius: 3px; padding: 2px 5px;
+      letter-spacing: 0.5px; margin-left: 6px;
+      vertical-align: middle;
+    }
+    .src-row {
+      grid-column: 1/-1; display: flex; align-items: center;
+      gap: 6px; margin-top: 8px;
+    }
+    .src-badge {
+      border-radius: 4px; padding: 2px 7px;
+      font-size: 10px; font-weight: 600; white-space: nowrap;
+    }
+    .src-badge-live  { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
+    .src-badge-yandex{ background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+    .src-label { font-size: 10px; color: var(--muted); }
+    .src-note  { grid-column: 1/-1; margin-top: 8px; font-size: 10px; color: var(--muted); }
 
     /* MAP */
     #map { flex: 1; }
@@ -782,13 +802,12 @@
       text-transform: uppercase;
       letter-spacing: 0.3px;
     }
-    .sp-badge-live {
-      font-size: 9px;
-      font-weight: 700;
-      color: var(--green);
-      letter-spacing: 0.5px;
-      margin-top: 2px;
+    .sp-badge-live, .sp-badge-yandex {
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 0.5px; margin-top: 2px;
     }
+    .sp-badge-live   { color: var(--green); }
+    .sp-badge-yandex { color: #f59e0b; }
     .sp-empty {
       padding: 48px 20px;
       text-align: center;
@@ -1181,12 +1200,23 @@ function formatSourceName(src) {
   return names[(src || '').toLowerCase()] || src;
 }
 
+// Per-station API (реальные цены каждой АЗС)
+function isPerStation(src) {
+  return src === 'газпромнефть' || src === 'татнефть';
+}
+// Сетевые цены через Яндекс Карты (единые по СПб, не per-station)
+function isYandexNetwork(src) {
+  return src === 'яндекс';
+}
+
 // Метка источника цен для отображения в карточке
 function getPriceSourceLabel(prices) {
   const src = prices._source;
   if (!src || src === 'none') return null;
   if (src === 'network') return { text: 'по сети', cls: 'price-source-network' };
   if (src === 'osm')     return { text: 'OSM', cls: 'price-source-osm' };
+  if (isPerStation(src)) return { text: 'LIVE', cls: 'price-source-live' };
+  if (isYandexNetwork(src)) return { text: 'Яндекс', cls: 'price-source-yandex' };
   return { text: 'LIVE', cls: 'price-source-live' };
 }
 
@@ -1833,8 +1863,10 @@ function _buildStationCard(s, cheapest, cheapestCount, fuelLabels, otherFuels) {
   const stPrices = getPricesForStation(s);
   const price = stPrices[activeFuel];
   const isCheapest = cheapest !== null && price === cheapest && cheapestCount === 1;
-  const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
-  const cardSourceBrand = formatSourceName(hasLivePrices ? stPrices._source : null);
+  const _cardSrc = stPrices._source;
+  const hasLivePrices = isPerStation(_cardSrc);
+  const hasYandexPrices = isYandexNetwork(_cardSrc);
+  const cardSourceBrand = formatSourceName((hasLivePrices || hasYandexPrices) ? _cardSrc : null);
   const cardEffectiveBrand = s.brand || cardSourceBrand || null;
   const displayName = cardEffectiveBrand
     ? (normalizeBrandName(cardEffectiveBrand) || cardEffectiveBrand)
@@ -1852,6 +1884,7 @@ function _buildStationCard(s, cheapest, cheapestCount, fuelLabels, otherFuels) {
           ${isClosed ? '<span class="badge-closed">⛔ ЗАКРЫТА</span>' : ''}
           ${isCheapest ? '<span class="badge-cheapest">ДЕШЕВЛЕ ВСЕХ</span>' : ''}
           ${hasLivePrices ? '<span class="badge-live" title="Индивидуальные цены этой АЗС">● LIVE</span>' : ''}
+          ${hasYandexPrices ? '<span class="badge-yandex" title="Цены по сети с Яндекс Карт">● Яндекс</span>' : ''}
         </div>
         <div class="station-addr">${s.address || 'Адрес не указан'}</div>
         ${isClosed && stStatus.reason ? `<div class="station-closed-bar">⚡ ${stStatus.reason}</div>` : ''}
@@ -1937,8 +1970,10 @@ function openStation(id) {
   }
 
   const stPrices = getPricesForStation(s);
-  const hasLivePrices = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
-  const hasNetworkPrices = stPrices._source === 'network';
+  const _popupSrc = stPrices._source;
+  const hasLivePrices = isPerStation(_popupSrc);
+  const hasYandexPrices = isYandexNetwork(_popupSrc);
+  const hasNetworkPrices = _popupSrc === 'network';
 
   // Основные 4 вида топлива
   const fuelData = [
@@ -1994,21 +2029,20 @@ function openStation(id) {
   // Метка источника цен
   let sourceHtml = '';
   if (hasLivePrices) {
-    const upd = sp && sp.updated ? sp.updated : '';
-    const srcName = formatSourceName(stPrices._source);
-    sourceHtml = `<div style="grid-column:1/-1;display:flex;align-items:center;gap:6px;margin-top:6px">
-      <span style="background:#22c55e22;color:#22c55e;border:1px solid #22c55e44;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:600">● LIVE</span>
-      <span style="font-size:10px;color:var(--muted)">${srcName}${upd ? ' · ' + upd : ''}</span>
+    const srcName = formatSourceName(_popupSrc);
+    const age = formatAge(sp && sp.updated);
+    sourceHtml = `<div class="src-row">
+      <span class="src-badge src-badge-live">● LIVE</span>
+      <span class="src-label">${srcName}${age ? ' · ' + age : ''}</span>
+    </div>`;
+  } else if (hasYandexPrices) {
+    const age = formatAge(sp && sp.updated);
+    sourceHtml = `<div class="src-row">
+      <span class="src-badge src-badge-yandex">● Яндекс</span>
+      <span class="src-label">Яндекс Карты · единые по СПб${age ? ' · ' + age : ''}</span>
     </div>`;
   } else if (hasNetworkPrices) {
-    const brand = (s.brand || s.name || '').toLowerCase();
-    const isGpn = brand.includes('газпром');
-    const networkNote = isGpn
-      ? '⚠ Индивидуальные цены не получены · средняя по сети'
-      : `⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}`;
-    sourceHtml = `<div style="grid-column:1/-1;margin-top:6px;font-size:10px;color:var(--muted)">
-      ${networkNote}
-    </div>`;
+    sourceHtml = `<div class="src-note">⚠ Средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}</div>`;
   }
 
   document.getElementById('popupPrices').innerHTML = priceCards + sourceHtml;
@@ -2175,7 +2209,8 @@ function renderSearchPanel() {
     const stPrices = getPricesForStation(s);
     const price = stPrices[activeFuel];
     const name = getDisplayName(s);
-    const hasLive = stPrices._source && stPrices._source !== 'network' && stPrices._source !== 'none';
+    const hasLive = isPerStation(stPrices._source);
+    const hasYandex = isYandexNetwork(stPrices._source);
     const isCheapest = cheapest !== null && price === cheapest;
     const distKm = userLocation ? haversine(userLocation.lat, userLocation.lon, s.lat, s.lon) : null;
     const distStr = distKm !== null
@@ -2194,7 +2229,13 @@ function renderSearchPanel() {
       </div>
       <div class="sp-right">
         <div class="sp-price">${price !== null && price !== undefined ? price + ' ₽' : '—'}</div>
-        ${isCheapest && price !== null ? '<div class="sp-badge-live">● ДЕШЕВЛЕ</div>' : hasLive ? '<div class="sp-badge-live">● LIVE</div>' : `<div class="sp-price-fuel">${fuelLabels[activeFuel]}</div>`}
+        ${isCheapest && price !== null
+          ? '<div class="sp-badge-live">● ДЕШЕВЛЕ</div>'
+          : hasLive
+            ? '<div class="sp-badge-live">● LIVE</div>'
+            : hasYandex
+              ? '<div class="sp-badge-yandex">● Яндекс</div>'
+              : `<div class="sp-price-fuel">${fuelLabels[activeFuel]}</div>`}
       </div>
     `;
     item.addEventListener('pointerdown', e => e.preventDefault());
