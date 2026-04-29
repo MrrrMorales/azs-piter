@@ -2003,12 +2003,9 @@ function openStation(id) {
   } else if (hasNetworkPrices) {
     const brand = (s.brand || s.name || '').toLowerCase();
     const isGpn = brand.includes('газпром');
-    const isLukoil = sp && sp.fuels;  // Лукойл с данными об ассортименте из API
     const networkNote = isGpn
       ? '⚠ Индивидуальные цены не получены · средняя по сети'
-      : isLukoil
-        ? `ℹ Ассортимент — официальный API · цены средние по сети${pricesUpdated ? ' · ' + pricesUpdated : ''}`
-        : `⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}`;
+      : `⚠ Цены средние по сети${pricesUpdated ? ' · обновлено ' + pricesUpdated : ''}`;
     sourceHtml = `<div style="grid-column:1/-1;margin-top:6px;font-size:10px;color:var(--muted)">
       ${networkNote}
     </div>`;
