@@ -738,12 +738,12 @@ def _yandex_playwright_search(search_text):
 
             page.on('response', on_response)
             try:
-                await page.goto('https://yandex.ru/maps/', wait_until='domcontentloaded', timeout=60000)
-                await asyncio.sleep(3)
+                await page.goto('https://yandex.ru/maps/', wait_until='domcontentloaded', timeout=120000)
+                await asyncio.sleep(5)
                 try:
                     inp = await page.wait_for_selector(
                         'input[class*="input"], [class*="search"] input, input[type="text"]',
-                        timeout=10000
+                        timeout=15000
                     )
                     await inp.click()
                     await asyncio.sleep(0.5)
@@ -754,9 +754,9 @@ def _yandex_playwright_search(search_text):
                     from urllib.parse import quote
                     await page.goto(
                         f'https://yandex.ru/maps/?text={quote(search_text)}&type=biz',
-                        wait_until='domcontentloaded', timeout=60000
+                        wait_until='domcontentloaded', timeout=120000
                     )
-                await asyncio.sleep(12)  # ждём первую страницу
+                await asyncio.sleep(15)  # ждём первую страницу
 
                 # Прокручиваем сайдбар для загрузки всех страниц
                 prev_count = 0
@@ -848,6 +848,11 @@ def _extract_per_station_prices(items):
                 _lon = pt.get('lon') or pt.get('longitude')
                 if _lat and _lon:
                     lat, lon = float(_lat), float(_lon)
+        if lat is None:
+            # Yandex Maps returns coordinates as top-level [lon, lat] list
+            coords = item.get('coordinates')
+            if isinstance(coords, list) and len(coords) >= 2:
+                lon, lat = float(coords[0]), float(coords[1])
 
         if lat is None or lon is None:
             continue
@@ -963,15 +968,22 @@ def run():
     all_prices = {}
 
     print()
+    YANDEX_FETCHERS = {fetch_lukoil_yandex, fetch_rosneft_yandex}
+    prev_was_yandex = False
     for fetcher_fn in [fetch_gpn, fetch_tatneft, fetch_lukoil_yandex, fetch_rosneft_yandex, fetch_ptk]:
+        # Пауза между двумя Playwright-сессиями Яндекса чтобы дать браузеру закрыться
+        if fetcher_fn in YANDEX_FETCHERS and prev_was_yandex:
+            import time
+            print('  [пауза 10с перед следующим Playwright...]')
+            time.sleep(10)
         try:
             chunk = fetcher_fn(osm_stations)
-            # Обновляем: новые данные перезаписывают старые для тех же станций
             all_prices.update(chunk)
             if chunk:
                 print(f'  Добавлено/обновлено {len(chunk)} записей')
         except Exception as e:
             print(f'  [!] Ошибка источника {fetcher_fn.__name__}: {e}')
+        prev_was_yandex = fetcher_fn in YANDEX_FETCHERS
 
     output = {
         'updated': datetime.datetime.now().strftime('%d.%m.%Y %H:%M'),
