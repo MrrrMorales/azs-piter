@@ -563,11 +563,12 @@ def fetch_lukoil(osm_stations):
 
 def fetch_lukoil_yandex(osm_stations):
     """
-    Лукойл: per-station цены с Яндекс Карт через Playwright.
-    Собирает все страницы, матчит каждую станцию Яндекса к OSM по координатам.
-    Fallback на fetch_lukoil() если Playwright не установлен.
+    Лукойл: per-station цены с Яндекс Карт (yandex.ru/maps/api/search, snippets=fuel/1.x).
+    Порядок: 1) прямой requests-запрос; 2) Playwright (headless=False, если API заблокировал);
+    3) fetch_lukoil() — сетевые цены из prices.json, если Яндекс не дал данных.
+    Матчит каждую станцию Яндекса к OSM по ближайшим координатам (≤400м).
     """
-    print('[Лукойл/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
+    print('[Лукойл/Яндекс] Получаем цены с Яндекс Карт...')
     items = _yandex_playwright_search('ЛУКОЙЛ АЗС Санкт-Петербург')
 
     if items is None:
@@ -766,8 +767,10 @@ def _yandex_search_api(search_text, max_results=300):
 def _yandex_playwright_search(search_text):
     """
     Ищет организации на Яндекс Картах и возвращает items с fuelInfo.
-    Порядок: 1) _yandex_search_api (requests, быстро); 2) Playwright (headless=False, fallback).
-    Возвращает список items (или [] при ошибке, None если Playwright не установлен).
+    Порядок:
+      1) _yandex_search_api — прямой GET к yandex.ru/maps/api/search (быстро, без браузера);
+      2) Playwright headless=False — если API заблокировал или не вернул цены.
+    Возвращает список items, [] при ошибке, None если Playwright не установлен.
     """
     api_items = _yandex_search_api(search_text)
     fuel_cnt = sum(1 for it in api_items if isinstance(it, dict) and it.get('fuelInfo'))
@@ -961,10 +964,11 @@ def _extract_per_station_prices(items):
 
 def fetch_rosneft_yandex(osm_stations):
     """
-    Роснефть: per-station цены с Яндекс Карт через Playwright.
-    Собирает все страницы, матчит каждую станцию Яндекса к OSM по координатам.
+    Роснефть: per-station цены с Яндекс Карт (yandex.ru/maps/api/search, snippets=fuel/1.x).
+    Порядок: 1) прямой requests-запрос; 2) Playwright (headless=False, если API заблокировал).
+    Матчит каждую станцию Яндекса к OSM по ближайшим координатам (≤400м).
     """
-    print('[Роснефть/Яндекс] Запускаем Playwright для получения цен с Яндекс Карт...')
+    print('[Роснефть/Яндекс] Получаем цены с Яндекс Карт...')
     items = _yandex_playwright_search('Роснефть АЗС Санкт-Петербург')
 
     if items is None:

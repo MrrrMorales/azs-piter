@@ -9,5 +9,32 @@ update_log.txt
 monitor_log.txt
 *_out.txt
 out.txt
+
+# Большие JS-библиотеки
 lukoil_scripts.js
+
+# Runtime-состояние
 monitor_state.json
+
+# Захваченный HTTP-трафик (исследования)
+*_traffic.json
+*_raw.json
+yandex_traffic.json
+lukoil_web_traffic.json
+
+# APK-файлы и инструменты реверс-инжиниринга
+*.apk
+*.xapk
+apkeep.exe
+yandex_maps_apk/
+
+# Исследовательские скрипты (не часть основного пайплайна)
+analyze_yandex_raw.py
+analyze_lukoil_raw.py
+yandex_capture_addon.py
+find_yandex_prices.py
+run_yandex_intercept.bat
+run_yandex_emulator_intercept.bat
+sniff_yandex_prices.py
+sniff_lukoil_web.py
+lukoil_capture.py

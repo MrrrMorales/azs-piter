@@ -10,7 +10,7 @@ index.html                — фронтенд: карта Leaflet + sidebar + p
 admin.html                — ручное редактирование цен через JSONBin (с паролем)
 parser.py                 — парсер средних цен по брендам (4 источника)
 save_stations.py          — скачивает все АЗС из OSM через Overpass API
-fetch_per_station_prices.py — индивидуальные цены ГПН через gpnbonus.ru API
+fetch_per_station_prices.py — индивидуальные цены: ГПН (gpnbonus.ru), Лукойл/Роснефть (Яндекс Карты)
 enrich_brands.py          — обогащение brand/address через 2GIS API
 fix_brands.py             — ручная нормализация брендов в stations.json
 prices.json               — кэш средних цен по брендам (результат parser.py)
@@ -56,9 +56,10 @@ OSM (Overpass) → save_stations.py → stations.json
                                          ↓
 gsm.ru / benzoportal / fuelprice / benzin-price → parser.py → prices.json → JSONBin
                                          ↓
-gpnbonus.ru API → fetch_per_station_prices.py → station_prices.json
-                                         ↓
-                               index.html (fetch всех трёх)
+gpnbonus.ru API ─────────────────────────────────────────────────────┐
+yandex.ru/maps/api/search (Лукойл, Роснефть) → fetch_per_station_prices.py → station_prices.json
+                                                                              ↓
+                                                                    index.html (fetch всех трёх)
 ```
 
 **Приоритет цен в UI (от высшего к низшему):**
@@ -94,10 +95,11 @@ set JSONBIN_API_KEY=...
 ## Известные ограничения
 
 - ПТК — per-station цены не реализованы (заглушка `fetch_ptk` в `fetch_per_station_prices.py`)
-- Лукойл, Роснефть — цены через Яндекс Карты (Playwright): единые по СПб, применяются ко всем станциям OSM соответствующего бренда.
-  Источники: `fetch_lukoil_yandex()`, `fetch_rosneft_yandex()` в `fetch_per_station_prices.py`.
-  Требует: `pip install playwright && python -m playwright install chromium`.
-  Режим headless=False (Яндекс детектирует headless).
+- Лукойл, Роснефть — per-station цены из Яндекс Карт через `yandex.ru/maps/api/search?snippets=fuel/1.x`.
+  Функции: `fetch_lukoil_yandex()`, `fetch_rosneft_yandex()` в `fetch_per_station_prices.py`.
+  Порядок: 1) прямой requests (быстро, без браузера); 2) Playwright headless=False (fallback, если Яндекс заблокировал).
+  Playwright требует: `pip install playwright && python -m playwright install chromium`.
+  Яндекс получает цены напрямую от брендов через партнёрский фид (поле `fuelInfo.timestamp` = дата обновления от бренда).
   Роснефть API (rosneft-azs.ru/api/v*/stations) существует, но требует токен мобильного приложения (ошибка 516).
 - Словари брендов дублируются в 4 файлах — надо держать синхронизированными
 - Парсер запускается вручную, нет автоматического расписания
