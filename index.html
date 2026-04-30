@@ -474,8 +474,30 @@
       display: flex; align-items: flex-start; gap: 8px;
       margin-bottom: 10px; font-size: 12px;
     }
-    .info-row .ikey { color: var(--muted); width: 80px; flex-shrink: 0; }
-    .info-row .ival { color: var(--text); }
+    .info-row .ikey {
+      display: flex; align-items: center; gap: 5px;
+      color: var(--muted); width: 80px; flex-shrink: 0;
+    }
+    .info-row .ikey svg { flex-shrink: 0; opacity: 0.6; }
+    .info-row .ival { color: var(--text); line-height: 1.4; }
+
+    .service-chips {
+      display: flex; flex-wrap: wrap; gap: 5px;
+    }
+    .service-chip {
+      display: inline-flex; align-items: center;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 9px;
+      font-size: 10px; color: var(--text);
+      white-space: nowrap;
+    }
+
+    .info-divider {
+      border: none; border-top: 1px solid var(--border);
+      margin: 12px 0;
+    }
 
     .video-block {
       background: var(--surface2); border-radius: 8px;
@@ -2048,7 +2070,16 @@ function openStation(id) {
   document.getElementById('popupPrices').innerHTML = priceCards + sourceHtml;
 
   const info = getBrandInfo(s);
-  // Format opening hours
+
+  const ICONS = {
+    hours:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    phone:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.1 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.36 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>`,
+    site:     `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>`,
+    services: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`,
+    address:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  };
+
+  // Режим работы: приоритет OSM → данные от бренда API → «Нет данных»
   const ohFormatted = formatOpeningHours(s.opening_hours);
   const ohStatus = isOpenNow(s.opening_hours);
   let hoursVal;
@@ -2059,23 +2090,45 @@ function openStation(id) {
         ? '<span style="color:#f87171;font-weight:600;margin-left:6px">· Закрыто</span>'
         : '';
     hoursVal = ohFormatted + badge;
+  } else if (sp && sp.hours) {
+    hoursVal = sp.hours;
   } else {
-    // No OSM hours — use brand fallback but don't show open/closed
     hoursVal = '<span style="color:var(--muted)">Нет данных о графике</span>';
   }
-  const infoRows = [
-    { key: 'Режим',   val: hoursVal },
-    { key: 'Телефон', val: s.phone || (info && info.phone) || 'Не указан' },
-  ];
-  if (info && info.url) {
-    infoRows.push({ key: 'Сайт', val: `<a href="${info.url}" target="_blank" style="color:var(--accent)">${info.url.replace('https://', '')}</a>` });
-  }
-  document.getElementById('popupInfo').innerHTML = infoRows.map(r => `
+
+  // Телефон: OSM → API бренда → бренд-фолбэк
+  const phoneRaw = s.phone || (sp && sp.phone) || (info && info.phone);
+  const phoneVal = phoneRaw
+    ? `<a href="tel:${phoneRaw.replace(/\s/g,'')}" style="color:var(--text);text-decoration:none">${phoneRaw}</a>`
+    : '<span style="color:var(--muted)">Не указан</span>';
+
+  const mkRow = (icon, key, val) => `
     <div class="info-row">
-      <span class="ikey">${r.key}:</span>
-      <span class="ival">${r.val}</span>
-    </div>
-  `).join('');
+      <span class="ikey">${ICONS[icon]}${key}</span>
+      <span class="ival">${val}</span>
+    </div>`;
+
+  let html = mkRow('hours', 'Режим', hoursVal)
+           + mkRow('phone', 'Тел.', phoneVal);
+
+  if (info && info.url) {
+    const urlLabel = info.url.replace('https://', '');
+    html += mkRow('site', 'Сайт', `<a href="${info.url}" target="_blank" style="color:var(--accent)">${urlLabel}</a>`);
+  }
+
+  if (sp && sp.address) {
+    html += mkRow('address', 'Адрес', `<span style="font-size:11px">${sp.address}</span>`);
+  }
+
+  if (sp && sp.services && sp.services.length) {
+    html += `<hr class="info-divider">
+    <div class="info-row" style="align-items:flex-start">
+      <span class="ikey" style="padding-top:3px">${ICONS.services}Услуги</span>
+      <div class="service-chips">${sp.services.map(s => `<span class="service-chip">${s}</span>`).join('')}</div>
+    </div>`;
+  }
+
+  document.getElementById('popupInfo').innerHTML = html;
 
   const popupLink = document.getElementById('popupOsmLink');
   const yandexQuery = s.brand || s.name;

@@ -355,6 +355,79 @@ def lukoil_get_stations():
         return []
 
 
+def _lukoil_parse_hours(gs):
+    """Парсит StationBusinessHours → читаемая строка или None."""
+    if gs.get('TwentyFourHour'):
+        return 'Круглосуточно'
+    bh = gs.get('StationBusinessHours') or {}
+    days_raw = bh.get('Days') or []
+    if not days_raw:
+        return None
+
+    def fmt_time(t):
+        # "08:00:00" → "08:00", "1.00:00:00" → "00:00" (след. полночь = 24:00)
+        if not t:
+            return '?'
+        if t.startswith('1.'):
+            return '24:00'
+        return t[:5]
+
+    # Если все дни одинаковы — одна строка
+    slots = [(fmt_time(d.get('StartTime')), fmt_time(d.get('EndTime'))) for d in days_raw]
+    start0, end0 = slots[0]
+    if start0 == '00:00' and end0 == '24:00':
+        return 'Круглосуточно'
+    if all(s == start0 and e == end0 for s, e in slots):
+        return f'Ежедневно {start0}–{end0}'
+
+    # Иначе пн-пт / сб-вс
+    day_names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+    groups = []
+    i = 0
+    while i < len(slots):
+        j = i + 1
+        while j < len(slots) and slots[j] == slots[i]:
+            j += 1
+        s, e = slots[i]
+        if i == j - 1:
+            groups.append(f'{day_names[i]}: {s}–{e}')
+        else:
+            groups.append(f'{day_names[i]}–{day_names[j-1]}: {s}–{e}')
+        i = j
+    return ', '.join(groups)
+
+
+def lukoil_get_details(station_ids):
+    """
+    Батч-запрос GetObjects для списка GasStationId.
+    Возвращает {GasStationId: {'address':..., 'phone':..., 'hours':..., 'services':[...]}}.
+    20 станций за запрос.
+    """
+    BATCH = 20
+    result = {}
+    batches = [station_ids[i:i+BATCH] for i in range(0, len(station_ids), BATCH)]
+    for idx, batch in enumerate(batches):
+        params = [('ids', f'gasStation{sid}') for sid in batch] + [('lng', 'RU')]
+        try:
+            r = SESSION.get(f'{LUKOIL_BASE}/api/cartography/GetObjects', params=params, timeout=30)
+            r.raise_for_status()
+            for item in r.json():
+                gs = item.get('GasStation', {})
+                sid = gs.get('GasStationId')
+                if not sid:
+                    continue
+                result[sid] = {
+                    'address':  gs.get('Address') or gs.get('Street') or None,
+                    'phone':    gs.get('Phone') or None,
+                    'hours':    _lukoil_parse_hours(gs),
+                    'services': [s['Name'] for s in gs.get('Services', []) if s.get('Name')],
+                }
+        except Exception as e:
+            print(f'  [!] GetObjects батч {idx+1}/{len(batches)}: {e}')
+        time.sleep(0.3)
+    return result
+
+
 def lukoil_get_fuel_availability():
     """
     Возвращает {GasStationId: set_of_fuel_keys} для всех станций.
@@ -409,6 +482,11 @@ def fetch_lukoil(osm_stations):
     ]
     print(f'  Найдено {len(spb_st)} станций Лукойл в регионе СПб/Ленобласть')
 
+    print('[Лукойл] Получаем детальные данные каждой станции (GetObjects)...')
+    spb_ids = [s['GasStationId'] for s in spb_st]
+    details = lukoil_get_details(spb_ids)
+    print(f'  Деталей получено: {len(details)} станций')
+
     print('[Лукойл] Получаем ассортимент топлива...')
     availability = lukoil_get_fuel_availability()
     print(f'  Данные о топливе: {len(availability)} станций')
@@ -455,6 +533,7 @@ def fetch_lukoil(osm_stations):
             continue
 
         fuel_list = sorted(fuels_available, key=lambda k: ['92', '95', '100', 'dt'].index(k) if k in ['92', '95', '100', 'dt'] else 99)
+        det = details.get(sid, {})
         entry = {
             'source': 'network',  # цены средние по сети, не per-station
             'updated': updated_ts,
@@ -464,6 +543,14 @@ def fetch_lukoil(osm_stations):
             '100': network_prices.get('100') if '100' in fuels_available else None,
             'dt':  network_prices.get('dt')  if 'dt'  in fuels_available else None,
         }
+        if det.get('address'):
+            entry['address'] = det['address']
+        if det.get('phone'):
+            entry['phone'] = det['phone']
+        if det.get('hours'):
+            entry['hours'] = det['hours']
+        if det.get('services'):
+            entry['services'] = det['services']
         results[str(osm['id'])] = entry
         matched += 1
         print(f'  ✓ id={sid} ({addr}) -> OSM#{osm["id"]} ({dist*1000:.0f}м) | {fuel_list}')
@@ -527,26 +614,43 @@ def fetch_lukoil_yandex(osm_stations):
                 matched += 1
                 print(f'  ✓ ({yandex_st["lat"]:.4f},{yandex_st["lon"]:.4f}) -> OSM#{osm["id"]} ({dist*1000:.0f}м) | {p}')
 
-    # Fallback для OSM-станций без совпадения: сетевая цена
-    unmatched = [s for s in lukoil_osm if str(s['id']) not in results]
-    if unmatched:
-        network_prices, ts_str = _extract_network_prices(items)
-        if network_prices:
-            if ts_str:
-                print(f'  [Яндекс] Сетевая цена на {ts_str}: {network_prices}')
-            for osm in unmatched:
-                results[str(osm['id'])] = {
-                    'source': 'яндекс',
-                    'updated': updated_ts,
-                    '92':         network_prices.get('92'),
-                    '95':         network_prices.get('95'),
-                    '95_premium': network_prices.get('95_premium'),
-                    '100':        network_prices.get('100'),
-                    'dt':         network_prices.get('dt'),
-                }
-            print(f'  Fallback (сетевая): {len(unmatched)} станций')
+    unmatched = len(lukoil_osm) - matched
+    print(f'[Лукойл/Яндекс] Готово: per-station {matched}, без данных {unmatched}, всего {len(results)}')
 
-    print(f'[Лукойл/Яндекс] Готово: per-station {matched}, fallback {len(unmatched)}, всего {len(results)}')
+    # Обогащаем деталями из GetObjects (адрес, телефон, часы, услуги)
+    print('[Лукойл/Яндекс] Обогащаем данные из GetObjects...')
+    all_lukoil_st = lukoil_get_stations()
+    spb_lukoil_st = [
+        s for s in all_lukoil_st
+        if LAT_MIN <= s.get('Latitude', 0) <= LAT_MAX
+        and LON_MIN <= s.get('Longitude', 0) <= LON_MAX
+    ]
+    if spb_lukoil_st:
+        spb_ids = [s['GasStationId'] for s in spb_lukoil_st]
+        details = lukoil_get_details(spb_ids)
+        osm_by_id = {str(s['id']): s for s in lukoil_osm}
+        for osm_id, entry in results.items():
+            osm_st = osm_by_id.get(osm_id)
+            if not osm_st:
+                continue
+            best_sid, best_dist = None, float('inf')
+            for api_st in spb_lukoil_st:
+                d = haversine_km(osm_st.get('lat', 0), osm_st.get('lon', 0),
+                                 api_st.get('Latitude', 0), api_st.get('Longitude', 0))
+                if d < best_dist:
+                    best_dist = d
+                    best_sid = api_st['GasStationId']
+            if best_sid and best_dist <= MATCH_RADIUS_KM:
+                det = details.get(best_sid, {})
+                if det.get('address'):
+                    entry['address'] = det['address']
+                if det.get('phone'):
+                    entry['phone'] = det['phone']
+                if det.get('hours'):
+                    entry['hours'] = det['hours']
+                if det.get('services'):
+                    entry['services'] = det['services']
+        print(f'  GetObjects: детали добавлены для {sum(1 for e in results.values() if "address" in e)} станций')
     return results
 
 

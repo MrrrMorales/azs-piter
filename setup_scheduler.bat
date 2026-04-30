@@ -1,27 +1,25 @@
 @echo off
 :: Запускать от имени Администратора!
-:: Регистрирует задачу обновления цен ГПН в Task Scheduler
+:: Регистрирует еженедельное обновление цен АЗС в Windows Task Scheduler
 
-set TASK_NAME=AZS-Piter GPN Price Update
-set SCRIPT=D:\PiterAZS\update_gpn_prices.ps1
-set PS_CMD=powershell.exe -NonInteractive -ExecutionPolicy Bypass -File "%SCRIPT%"
+set TASK_NAME=AZS-Piter Weekly Price Update
+set SCRIPT=D:\PiterAZS\update_prices.bat
+set CMD=cmd.exe /c "%SCRIPT%"
 
-:: Удалить старую задачу
+:: Удалить старую задачу если есть
 schtasks /delete /tn "%TASK_NAME%" /f 2>nul
 
-:: Создать задачу с 4 запусками в день
-schtasks /create /tn "%TASK_NAME%" /tr "%PS_CMD%" /sc daily /st 07:00 /f
-schtasks /create /tn "%TASK_NAME%_11" /tr "%PS_CMD%" /sc daily /st 11:00 /f
-schtasks /create /tn "%TASK_NAME%_15" /tr "%PS_CMD%" /sc daily /st 15:00 /f
-schtasks /create /tn "%TASK_NAME%_19" /tr "%PS_CMD%" /sc daily /st 19:00 /f
+:: Создать задачу: каждый понедельник в 09:00
+schtasks /create /tn "%TASK_NAME%" /tr "%CMD%" /sc weekly /d MON /st 09:00 /f /rl highest
 
 echo.
-echo Задачи зарегистрированы:
-schtasks /query /tn "%TASK_NAME%" /fo list | findstr "Имя задания\|Следующее"
-schtasks /query /tn "%TASK_NAME%_11" /fo list | findstr "Имя задания\|Следующее"
-schtasks /query /tn "%TASK_NAME%_15" /fo list | findstr "Имя задания\|Следующее"
-schtasks /query /tn "%TASK_NAME%_19" /fo list | findstr "Имя задания\|Следующее"
-
-echo.
-echo Готово! Цены ГПН будут обновляться в 07:00, 11:00, 15:00, 19:00
+if errorlevel 1 (
+    echo ОШИБКА: не удалось создать задачу. Запустите от имени Администратора.
+) else (
+    echo Задача зарегистрирована:
+    schtasks /query /tn "%TASK_NAME%" /fo list | findstr /C:"Имя задания" /C:"Следующее" /C:"Task To Run" /C:"Next Run"
+    echo.
+    echo Цены будут обновляться автоматически каждый понедельник в 09:00.
+    echo Лог: D:\PiterAZS\update_log.txt
+)
 pause
