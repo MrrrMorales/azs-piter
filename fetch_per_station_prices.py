@@ -681,12 +681,100 @@ YANDEX_FUEL_MAP = {
 }
 
 
+def _yandex_get_csrf():
+    """Стартует сессию с yandex.ru/maps и возвращает csrfToken."""
+    import re
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      'Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9',
+    }
+    r = SESSION.get('https://yandex.ru/maps/', headers=headers, timeout=(5, 15))
+    r.raise_for_status()
+    m = re.search(r'"csrfToken"\s*:\s*"([^"]+)"', r.text)
+    if not m:
+        m = re.search(r'csrfToken["\s:]+([0-9a-f]+:[0-9]+)', r.text)
+    return m.group(1) if m else None
+
+
+def _yandex_search_api(search_text, max_results=300):
+    """
+    Быстрая попытка получить данные через yandex.ru/maps/api/search (requests).
+    Яндекс блокирует скрипты — при ошибке возвращает [] и Playwright подхватывает.
+    Короткий таймаут чтобы не тормозить.
+    """
+    try:
+        csrf = _yandex_get_csrf()
+    except Exception:
+        return []
+    if not csrf:
+        return []
+
+    base_params = {
+        'text':        search_text,
+        'type':        'biz',
+        'lang':        'ru_RU',
+        'ajax':        '1',
+        'csrfToken':   csrf,
+        'snippets':    'fuel/1.x,org_offer/2.x',
+        'add_snippet': 'fuel/1.x',
+        'results':     50,
+        'yandex_gid':  '213',
+    }
+    api_headers = {
+        'Referer':          'https://yandex.ru/maps/',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept':           'application/json, text/javascript, */*; q=0.01',
+    }
+
+    all_items = []
+    skip = 0
+    while True:
+        params = {**base_params, 'skip': skip}
+        try:
+            r = SESSION.get(
+                'https://yandex.ru/maps/api/search',
+                params=params,
+                headers=api_headers,
+                timeout=(5, 10),
+            )
+            if r.status_code != 200:
+                return all_items
+            data = r.json()
+        except Exception:
+            return all_items
+
+        items = data.get('data', {}).get('items', [])
+        total = data.get('data', {}).get('totalResultCount', 0)
+
+        if not items:
+            break
+
+        all_items.extend(items)
+        fuel_cnt = sum(1 for it in items if isinstance(it, dict) and it.get('fuelInfo'))
+        print(f'  [Яндекс API] +{len(items)} (с ценами: {fuel_cnt}), итого {len(all_items)}/{total}')
+
+        skip += len(items)
+        if len(all_items) >= min(total, max_results):
+            break
+        time.sleep(0.4)
+
+    return all_items
+
+
 def _yandex_playwright_search(search_text):
     """
-    Открывает Яндекс Карты через Playwright, ищет search_text и перехватывает
-    ВСЕ страницы /maps/api/search с fuelInfo (прокрутка сайдбара).
-    Возвращает список всех items (или [] при ошибке, None если Playwright не установлен).
+    Ищет организации на Яндекс Картах и возвращает items с fuelInfo.
+    Порядок: 1) _yandex_search_api (requests, быстро); 2) Playwright (headless=False, fallback).
+    Возвращает список items (или [] при ошибке, None если Playwright не установлен).
     """
+    api_items = _yandex_search_api(search_text)
+    fuel_cnt = sum(1 for it in api_items if isinstance(it, dict) and it.get('fuelInfo'))
+    if fuel_cnt > 0:
+        print(f'  [Яндекс] Прямой API: {len(api_items)} результатов, {fuel_cnt} с ценами')
+        return api_items
+
     import asyncio
     try:
         from playwright.async_api import async_playwright
